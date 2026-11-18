@@ -18,7 +18,6 @@ function Refutation({ refutation, onDelete, onReply, depth = 0 }) {
   const [isReplying, setIsReplying] = useState(false)
   const [replyContent, setReplyContent] = useState('')
   const isAuthor = user && user.id === refutation.user_id
-  const userInitial = refutation.user_email ? refutation.user_email[0].toUpperCase() : '?'
 
   const handleReplySubmit = () => {
     if (replyContent.trim()) {

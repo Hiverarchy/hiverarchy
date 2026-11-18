@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Container, Box, Typography, Button } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
 import { useProfile } from '../contexts/ProfileContext'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import MarkdownEditor from '../components/MarkdownEditor'
 
 export default function EditNow() {
@@ -21,15 +21,7 @@ export default function EditNow() {
   const handleSave = async () => {
     try {
       setLoading(true)
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('No user found')
-
-      const { error } = await supabase
-        .from('profiles')
-        .update({ now })
-        .eq('id', user.id)
-
-      if (error) throw error
+      await api.patchProfileMe({ now })
 
       // Refresh profiles to update navbar and other components
       await fetchProfiles()

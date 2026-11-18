@@ -1,9 +1,5 @@
 import { Link } from 'react-router-dom'
-import { useState } from 'react'
-
 function InterestCard({ title, description, image, link }) {
-  const [imageError, setImageError] = useState(false)
-
   return (
     <div className="interest-card">
       <img 
@@ -12,7 +8,6 @@ function InterestCard({ title, description, image, link }) {
         className="interest-image"
         onError={(e) => {
           console.error(`Failed to load image for ${title}:`, image);
-          setImageError(true);
           e.target.style.display = 'none';
         }}
       />

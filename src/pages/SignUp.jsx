@@ -39,7 +39,7 @@ function SignUp() {
       setLoading(true)
       
       // Step 1: Sign up
-      const { data, error: signUpError } = await signUp({ email, password })
+      const { error: signUpError } = await signUp({ email, password })
 
       if (signUpError) throw signUpError
       

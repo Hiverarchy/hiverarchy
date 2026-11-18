@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { useAuth } from './AuthContext'
 
 const ProfileContext = createContext()
@@ -23,11 +23,17 @@ export function ProfileProvider({ children }) {
     if (!filename || filename === 'null' || filename === 'undefined') return '/images/gg-logo.jpg'
     if (filename.startsWith('http')) return filename
     if (filename.startsWith('data:')) return filename
-    return `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/profile_logos/${filename}`
+    // Nest media: logo stored as `/media/<file>` from upload API
+    if (filename.startsWith('/media/')) {
+      const base = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || ''
+      return base ? `${base}${filename}` : filename
+    }
+    const base = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || ''
+    return base ? `${base}/media/profile_logos/${filename}` : '/images/gg-logo.jpg'
   }
 
   // Fetch the blog profile (based on URL)
-  const fetchBlogProfile = async (username) => {
+  const fetchBlogProfile = useCallback(async (username) => {
     try {
       if (!username || username === 'undefined' || username === 'null') {
         console.log('Invalid username provided for profile fetch, using default:', defaultUsername)
@@ -35,20 +41,7 @@ export function ProfileProvider({ children }) {
       }
 
       console.log('fetchBlogProfile starting for username:', username)
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('username', username)
-        .single()
-
-      if (error) {
-        console.error('Error in fetchBlogProfile:', error)
-        if (username !== defaultUsername) {
-          console.log('Retrying with default username')
-          return fetchBlogProfile(defaultUsername)
-        }
-        throw error
-      }
+      const data = await api.getProfileByUsername(username.toLowerCase())
 
       console.log('fetchBlogProfile success:', data)
       return data
@@ -60,26 +53,19 @@ export function ProfileProvider({ children }) {
       }
       return null
     }
-  }
+  }, [defaultUsername])
 
   // Fetch the user profile (based on auth)
-  const fetchUserProfile = async (userId) => {
+  const fetchUserProfile = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
-
-      if (error) throw error
-      return data
-    } catch (error) {
+      return await api.getProfileMe()
+    } catch {
       return null
     }
-  }
+  }, [])
 
   // Get username from path if not available from useParams
-  const getUsernameFromPath = () => {
+  const getUsernameFromPath = useCallback(() => {
     const pathParts = location.pathname.split('/').filter(Boolean)
     
     // Check if we're on localhost:4021 (hierarchy mode)
@@ -111,7 +97,7 @@ export function ProfileProvider({ children }) {
     }
     
     return defaultUsername
-  }
+  }, [location.pathname, user, userProfile?.username, defaultUsername])
 
   // Fetch both profiles when needed
   const fetchProfiles = async () => {
@@ -128,7 +114,7 @@ export function ProfileProvider({ children }) {
       // If we're on localhost:4021 and the user is logged in, use their profile
       if (isHierarchyMode && user && !blogUsername) {
         // Get user profile first
-        const newUserProfile = await fetchUserProfile(user.id)
+        const newUserProfile = await fetchUserProfile()
         if (newUserProfile?.username) {
           console.log('Using logged-in user profile for localhost:4021:', newUserProfile.username)
           setUserProfile(newUserProfile)
@@ -143,7 +129,7 @@ export function ProfileProvider({ children }) {
         // For hierarchy mode (localhost:4021), only use default if no user is logged in
         if (isHierarchyMode && user) {
           // Try to get the user's profile
-          const newUserProfile = await fetchUserProfile(user.id)
+          const newUserProfile = await fetchUserProfile()
           if (newUserProfile?.username) {
             blogUsername = newUserProfile.username
           } else {
@@ -165,7 +151,7 @@ export function ProfileProvider({ children }) {
       setBlogProfile(newBlogProfile)
 
       // Get user profile if logged in
-      const newUserProfile = user ? await fetchUserProfile(user.id) : null
+      const newUserProfile = user ? await fetchUserProfile() : null
       console.log('Fetched user profile:', newUserProfile)
       setUserProfile(newUserProfile)
       
@@ -234,7 +220,7 @@ export function ProfileProvider({ children }) {
           console.log('Localhost:4021 detected, fetching user profile')
           
           // Get user profile
-          const newUserProfile = user ? await fetchUserProfile(user.id) : null
+          const newUserProfile = user ? await fetchUserProfile() : null
           if (!mounted) return
           
           if (newUserProfile?.username) {
@@ -262,7 +248,7 @@ export function ProfileProvider({ children }) {
         }
 
         // Get user profile if logged in
-        const newUserProfile = user ? await fetchUserProfile(user.id) : null
+        const newUserProfile = user ? await fetchUserProfile() : null
         if (!mounted) return
         
         if (newUserProfile) {
@@ -292,7 +278,18 @@ export function ProfileProvider({ children }) {
     return () => {
       mounted = false
     }
-  }, [routeUsername, user?.id, location.pathname])
+  }, [
+    routeUsername,
+    user?.id,
+    location.pathname,
+    blogProfile,
+    userProfile,
+    loading,
+    user,
+    getUsernameFromPath,
+    fetchBlogProfile,
+    fetchUserProfile,
+  ])
 
   const value = {
     // The profile being viewed (from URL)

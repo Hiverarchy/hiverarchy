@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInterests } from '../contexts/InterestContext'
 import { useProfile } from '../contexts/ProfileContext'
@@ -17,15 +17,10 @@ import {
   DialogActions,
   Button,
   TextField,
-  Input,
-  ImageList,
-  ImageListItem,
-  Tab,
-  Tabs,
-  Divider
+  Input
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 
 function Home() {
   const navigate = useNavigate()
@@ -37,15 +32,11 @@ function Home() {
   const [newTagline, setNewTagline] = useState('')
   const [selectedFile, setSelectedFile] = useState(null)
   const [isUploading, setIsUploading] = useState(false)
-  const [availableImages, setAvailableImages] = useState([])
-  const [selectedImageFile, setSelectedImageFile] = useState(null)
-  const [isLoadingImages, setIsLoadingImages] = useState(false)
-  const [logoDialogTab, setLogoDialogTab] = useState(0)
 
   const getImagePath = (interest) => {
     try {
       return interest.image_path || '/images/default.jpg'
-    } catch (error) {
+    } catch {
       return '/images/default.jpg'
     }
   }
@@ -54,9 +45,8 @@ function Home() {
     navigate(`/${currentUsername}/interest/${interest.name}`)
   }
 
-  const handleLogoEdit = async () => {
+  const handleLogoEdit = () => {
     setOpenLogoDialog(true)
-    await loadAvailableImages()
   }
 
   const handleTaglineEdit = () => {
@@ -64,104 +54,32 @@ function Home() {
     setOpenTaglineDialog(true)
   }
 
-  const loadAvailableImages = async () => {
-    setIsLoadingImages(true)
-    try {
-      const { data, error } = await supabase.storage
-        .from('profile_logos')
-        .list('', {
-          limit: 100,
-          offset: 0,
-          sortBy: { column: 'created_at', order: 'desc' }
-        })
-
-      if (error) throw error
-
-      // Filter out system files and only include image files
-      const imageFiles = data?.filter(file => {
-        const isImage = file.name.match(/\.(jpg|jpeg|png|gif|webp)$/i)
-        const isNotSystemFile = !file.name.startsWith('.')
-        return isImage && isNotSystemFile
-      }) || []
-
-      console.log('Filtered images:', imageFiles)
-      setAvailableImages(imageFiles)
-    } catch (error) {
-      console.error('Error loading images:', error)
-      alert('Error loading images. Please try again.')
-    } finally {
-      setIsLoadingImages(false)
-    }
-  }
-
-  const handleImageSelect = async (fileName) => {
-    try {
-      const { data, error: updateError } = await supabase
-        .from('profiles')
-        .update({ logo: fileName })
-        .eq('email', user.email)
-        .select()
-        .single()
-
-      if (updateError) throw updateError
-
-      setBlogProfile(data)
-      setOpenLogoDialog(false)
-    } catch (error) {
-      console.error('Error updating logo:', error)
-      alert('Error updating logo. Please try again.')
-    }
-  }
-
   const handleLogoUpload = async () => {
     if (!selectedFile) return
 
     setIsUploading(true)
     try {
-      const fileExt = selectedFile.name.split('.').pop()
-      const fileName = `${currentUsername}-logo-${Date.now()}.${fileExt}`
-      
-      // Upload to storage
-      const { error: uploadError } = await supabase.storage
-        .from('profile_logos')
-        .upload(fileName, selectedFile)
-
-      if (uploadError) throw uploadError
-
-      // Update profile with the new logo filename
-      const { data, error: updateError } = await supabase
-        .from('profiles')
-        .update({ logo: fileName })
-        .eq('email', user.email)
-        .select()
-        .single()
-
-      if (updateError) throw updateError
-
-      setBlogProfile(data)
-      await loadAvailableImages() // Refresh the image list
-      setLogoDialogTab(0) // Switch back to the gallery tab
+      const data = await api.uploadMedia(selectedFile)
+      const path = data?.url
+      if (!path) {
+        alert('Upload failed')
+        return
+      }
+      const profile = await api.patchProfileMe({ logo: path })
+      setBlogProfile(profile)
+      setOpenLogoDialog(false)
       setSelectedFile(null)
     } catch (error) {
       console.error('Error uploading logo:', error)
-      alert('Error updating logo. Please try again.')
+      alert(error.message || 'Error updating logo. Please try again.')
     } finally {
       setIsUploading(false)
-      setSelectedFile(null)
     }
   }
 
   const handleTaglineUpdate = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .update({ tagline: newTagline })
-        .eq('email', user.email)
-        .select()
-        .single()
-
-      if (error) throw error
-
+      const data = await api.patchProfileMe({ tagline: newTagline })
       setBlogProfile(data)
       setOpenTaglineDialog(false)
     } catch (error) {
@@ -318,72 +236,28 @@ function Home() {
         fullWidth
       >
         <DialogTitle>Change Logo</DialogTitle>
-        <Tabs
-          value={logoDialogTab}
-          onChange={(e, newValue) => setLogoDialogTab(newValue)}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
-        >
-          <Tab label="Image Gallery" />
-          <Tab label="Upload New" />
-        </Tabs>
         <DialogContent>
-          {logoDialogTab === 0 ? (
-            isLoadingImages ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                <CircularProgress />
-              </Box>
-            ) : (
-              <ImageList cols={3} gap={8}>
-                {availableImages.map((image) => (
-                  <ImageListItem 
-                    key={image.name}
-                    sx={{ 
-                      cursor: 'pointer',
-                      border: blogProfile?.logo === image.name ? '2px solid primary.main' : 'none',
-                      borderRadius: 1,
-                      overflow: 'hidden',
-                      '&:hover': {
-                        opacity: 0.8
-                      }
-                    }}
-                    onClick={() => handleImageSelect(image.name)}
-                  >
-                    <img
-                      src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/profile_logos/${image.name}`}
-                      alt={`Logo option ${image.name}`}
-                      loading="lazy"
-                      style={{ 
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover'
-                      }}
-                    />
-                  </ImageListItem>
-                ))}
-              </ImageList>
-            )
-          ) : (
-            <Box sx={{ pt: 2 }}>
-              <Input
-                type="file"
-                onChange={(e) => setSelectedFile(e.target.files[0])}
-                accept="image/*"
-                fullWidth
-              />
-            </Box>
-          )}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Upload an image. It is stored on the API under <code>/media/…</code> (sign in required).
+          </Typography>
+          <Box sx={{ pt: 1 }}>
+            <Input
+              type="file"
+              onChange={(e) => setSelectedFile(e.target.files[0])}
+              accept="image/*"
+              fullWidth
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenLogoDialog(false)}>Cancel</Button>
-          {logoDialogTab === 1 && (
-            <Button 
-              onClick={handleLogoUpload} 
-              disabled={!selectedFile || isUploading}
-              variant="contained"
-            >
-              {isUploading ? 'Uploading...' : 'Upload'}
-            </Button>
-          )}
+          <Button
+            onClick={handleLogoUpload}
+            disabled={!selectedFile || isUploading}
+            variant="contained"
+          >
+            {isUploading ? 'Uploading...' : 'Upload'}
+          </Button>
         </DialogActions>
       </Dialog>
 

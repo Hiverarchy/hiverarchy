@@ -24,6 +24,7 @@ export default function TagSelector({ tags = [], onChange }) {
       renderTags={(value, getTagProps) =>
         value.map((option, index) => (
           <Chip
+            key={`${String(option)}-${index}`}
             label={option}
             {...getTagProps({ index })}
           />

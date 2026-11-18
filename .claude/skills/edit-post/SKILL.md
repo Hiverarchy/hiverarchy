@@ -3,6 +3,8 @@ name: edit-post
 description: Edit and refine existing Hiverarchy blog posts. Use when user wants to revise content, fix tone issues, update facts, or improve an existing post.
 ---
 
+> **Stack:** The app uses **SurrealDB + NestJS** only. Do **not** use Supabase APIs, URLs, or keys. Fetch and update posts through the **Nest HTTP API** (see `docs/context/` or OpenAPI when available).
+
 # Edit Hiverarchy Post
 
 Retrieves, edits, and updates existing blog posts in the Hiverarchy platform.
@@ -148,7 +150,7 @@ When invoked from the web panel with post context:
 
 When invoked without context:
 - Ask the user for the post ID or title to search for
-- Use the Supabase API to look up posts by title if needed
+- Use the **Nest API** (or a documented admin query) to look up posts by title if needed
 
 ## Workflow
 
@@ -181,7 +183,7 @@ When invoked without context:
    - Making it a little messier
 
 6. Present to user for review
-7. Update in Supabase when approved
+7. Persist changes via the **Nest API** when approved
 ```
 
 ## The Final Edit Step (Critical)
@@ -198,18 +200,17 @@ Before presenting the edited post, do one more pass asking:
 
 ## API Details
 
+Use the Nest API (auth + routes documented in `docs/context/`). Example shape (replace base URL and auth):
+
 **Fetch post:**
 ```bash
-curl 'https://ssqyknqsfdtdxqocaiwm.supabase.co/rest/v1/posts?id=eq.POST_ID&select=*' \
-  -H 'apikey: SERVICE_KEY'
+curl -sS "http://localhost:API_PORT/posts/POST_ID" -H "Authorization: Bearer TOKEN"
 ```
 
 **Update post:**
 ```bash
-curl 'https://ssqyknqsfdtdxqocaiwm.supabase.co/rest/v1/posts?id=eq.POST_ID' \
-  -X PATCH \
-  -H 'apikey: SERVICE_KEY' \
-  -H 'Content-Type: application/json' \
+curl -sS "http://localhost:API_PORT/posts/POST_ID" -X PATCH \
+  -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
   -d '{"content": "updated markdown..."}'
 ```
 

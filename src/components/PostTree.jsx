@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -7,26 +7,14 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemIcon,
-  IconButton,
-  Collapse,
   ListItemButton,
-  Chip,
-  Skeleton
 } from '@mui/material'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import ArticleIcon from '@mui/icons-material/Article'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { useIsMobile } from '../utils/responsive'
-import { useProfile } from '../contexts/ProfileContext'
-
 export default function PostTree({ arcId, currentPostId, onPostSelect, isArcMode = false }) {
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const { currentUsername } = useProfile()
   const isMobile = useIsMobile()
 
   useEffect(() => {
@@ -44,32 +32,8 @@ export default function PostTree({ arcId, currentPostId, onPostSelect, isArcMode
           return
         }
         
-        let query
-        
-        if (isArcMode) {
-          // Fetch posts by arc_id
-          query = supabase
-            .from('posts')
-            .select('*')
-            .eq('arc_id', arcId)
-            .order('created_at', { ascending: true })
-        } else {
-          // Fetch posts by post's hierarchical relationship
-          query = supabase
-            .from('posts')
-            .select('*')
-            .or(`arc_id.eq.${arcId},id.eq.${arcId}`) // Get the root post and its children
-            .order('created_at', { ascending: true })
-        }
-
-        const { data, error } = await query
-
-        if (error) {
-          console.error('Error fetching posts:', error)
-          setError('Failed to load posts. Please try again later.')
-        } else {
-          setPosts(data || [])
-        }
+        const data = await api.getPostsByArc(arcId)
+        setPosts(data || [])
       } catch (err) {
         console.error('Unexpected error:', err)
         setError('An unexpected error occurred. Please try again later.')

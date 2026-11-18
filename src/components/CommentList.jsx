@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState, useEffect, useCallback } from 'react'
+import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import Comment from './Comment'
 import {
@@ -9,8 +9,7 @@ import {
   Button,
   CircularProgress,
   Alert,
-  Paper,
-  Divider
+  Paper
 } from '@mui/material'
 import { Send as SendIcon } from '@mui/icons-material'
 
@@ -22,50 +21,29 @@ function CommentList({ postId, onCountChange }) {
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
-    fetchComments()
-  }, [postId])
-
-  useEffect(() => {
-    if (onCountChange) {
-      onCountChange(comments.length)
-    }
-  }, [comments.length, onCountChange])
-
-  async function fetchComments() {
+  const fetchComments = useCallback(async () => {
     try {
       setError(null)
-      const { data: commentsData, error: commentsError } = await supabase
-        .from('comments')
-        .select(`
-          *,
-          profile:profiles (
-            id,
-            username,
-            email
-          )
-        `)
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true })
+      const commentsData = (await api.getComments(postId)) || []
 
-      if (commentsError) throw commentsError
-      
-      // Organize comments into a tree structure
       const commentMap = new Map()
       const rootComments = []
 
-      commentsData.forEach(comment => {
+      commentsData.forEach((comment) => {
         comment.user_email = comment.profile?.email
         comment.username = comment.profile?.username
         comment.replies = []
-        commentMap.set(comment.id, comment)
+        commentMap.set(String(comment.id), comment)
       })
 
-      commentsData.forEach(comment => {
-        if (comment.parent_id) {
-          const parent = commentMap.get(comment.parent_id)
+      commentsData.forEach((comment) => {
+        const pid = comment.parent_id ? String(comment.parent_id) : null
+        if (pid) {
+          const parent = commentMap.get(pid)
           if (parent) {
             parent.replies.push(comment)
+          } else {
+            rootComments.push(comment)
           }
         } else {
           rootComments.push(comment)
@@ -79,7 +57,17 @@ function CommentList({ postId, onCountChange }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [postId])
+
+  useEffect(() => {
+    fetchComments()
+  }, [fetchComments])
+
+  useEffect(() => {
+    if (onCountChange) {
+      onCountChange(comments.length)
+    }
+  }, [comments.length, onCountChange])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -89,23 +77,12 @@ function CommentList({ postId, onCountChange }) {
     setError(null)
 
     try {
-      const { error } = await supabase
-        .from('comments')
-        .insert([
-          {
-            content: newComment.trim(),
-            post_id: postId,
-            profile_id: user.id
-          }
-        ])
-
-      if (error) throw error
-
+      await api.createComment(postId, { content: newComment.trim() })
       setNewComment('')
       await fetchComments()
     } catch (error) {
       console.error('Error adding comment:', error)
-      setError('Failed to add comment. Please try again.')
+      setError(error.message || 'Failed to add comment. Please try again.')
     } finally {
       setSubmitting(false)
     }
@@ -114,39 +91,25 @@ function CommentList({ postId, onCountChange }) {
   async function handleDelete(commentId) {
     try {
       setError(null)
-      const { error } = await supabase
-        .from('comments')
-        .delete()
-        .eq('id', commentId)
-
-      if (error) throw error
-
-      setComments(comments.filter(comment => comment.id !== commentId))
+      await api.deleteComment(commentId)
+      await fetchComments()
     } catch (error) {
       console.error('Error deleting comment:', error)
-      setError('Failed to delete comment. Please try again.')
+      setError(error.message || 'Failed to delete comment. Please try again.')
     }
   }
 
   const handleReply = async (parentId, content) => {
     try {
-      const { error } = await supabase
-        .from('comments')
-        .insert([
-          {
-            content: content.trim(),
-            post_id: postId,
-            profile_id: user.id,
-            parent_id: parentId
-          }
-        ])
-
-      if (error) throw error
-
+      setError(null)
+      await api.createComment(postId, {
+        content: content.trim(),
+        parent_id: parentId,
+      })
       await fetchComments()
     } catch (error) {
       console.error('Error adding reply:', error)
-      setError('Failed to add reply. Please try again.')
+      setError(error.message || 'Failed to add reply. Please try again.')
     }
   }
 

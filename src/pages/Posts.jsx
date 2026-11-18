@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
   Box, 
@@ -14,7 +14,7 @@ import {
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import SearchIcon from '@mui/icons-material/Search'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { useSiteProfile } from '../contexts/SiteProfileContext'
 import ConfirmModal from '../components/ConfirmModal'
@@ -23,47 +23,35 @@ import { useProfile } from '../contexts/ProfileContext'
 function Posts() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { siteProfile, loading: profileLoading } = useSiteProfile()
+  const { loading: profileLoading } = useSiteProfile()
   const { currentUsername, loading: profileContextLoading } = useProfile()
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(0)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [postToDelete, setPostToDelete] = useState(null)
   const postsPerPage = 10
 
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async () => {
     if (!user?.id) return
 
     try {
       setLoading(true)
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          *,
-          images (
-            url
-          )
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
+      const data = await api.getPostsByUser(user.id)
       setPosts(data || [])
     } catch (error) {
-      setError('Failed to fetch posts')
+      console.error('Failed to fetch posts', error)
     } finally {
       setLoading(false)
     }
-  }
+  }, [user?.id])
 
   useEffect(() => {
     if (user?.id && currentUsername && currentUsername !== 'undefined') {
       fetchPosts()
     }
-  }, [user?.id, currentUsername])
+  }, [user?.id, currentUsername, fetchPosts])
 
   const handleSearch = (event) => {
     setSearchTerm(event.target.value)
@@ -83,19 +71,7 @@ function Posts() {
     if (!postToDelete) return
 
     try {
-      const { error: imageError } = await supabase
-        .from('images')
-        .delete()
-        .eq('post_id', postToDelete.id)
-
-      if (imageError) throw imageError
-
-      const { error: postError } = await supabase
-        .from('posts')
-        .delete()
-        .eq('id', postToDelete.id)
-
-      if (postError) throw postError
+      await api.deletePost(postToDelete.id)
 
       setPosts(posts.filter(p => p.id !== postToDelete.id))
       setShowDeleteModal(false)
@@ -120,6 +96,17 @@ function Posts() {
       </Box>
     )
   }
+
+  const filteredPosts = posts.filter(
+    (p) =>
+      !searchTerm ||
+      p.title?.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
+  const totalPages = Math.max(1, Math.ceil(filteredPosts.length / postsPerPage))
+  const pagedPosts = filteredPosts.slice(
+    (page - 1) * postsPerPage,
+    page * postsPerPage,
+  )
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
@@ -158,13 +145,13 @@ function Posts() {
         }}
       />
 
-      {posts.map((post) => {
+      {pagedPosts.map((post) => {
         const imageUrl = post.images?.[0]?.url;
         let parsedImageUrl = null;
         try {
           const parsed = JSON.parse(imageUrl);
           parsedImageUrl = parsed[0];
-        } catch (e) {
+        } catch {
           // If parsing fails, use the original URL
           parsedImageUrl = imageUrl;
         }

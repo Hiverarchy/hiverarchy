@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { useProfile } from './ProfileContext'
 import { useAuth } from './AuthContext'
 
@@ -19,162 +19,80 @@ export function InterestProvider({ children }) {
   const location = useLocation()
   const isManageRoute = location.pathname.includes('/manage/interests')
 
-  // Get username from path if not available from useParams
-  const getUsernameFromPath = () => {
+  const getUsernameFromPath = useCallback(() => {
     const pathParts = location.pathname.split('/').filter(Boolean)
     return pathParts[0]
-  }
+  }, [location.pathname])
 
-  const fetchInterestsQuery = (query) => {
-    // If we're on the manage page and we're the owner, show all interests
-    if (isManageRoute && user?.email === blogProfile?.email) {
-      return query
-    }
-    // Otherwise, only show active interests
-    return query.eq('is_active', true)
-  }
+  const includeInactiveForOwner =
+    isManageRoute && user?.email === blogProfile?.email
 
   useEffect(() => {
     const effectiveUsername = routeUsername || getUsernameFromPath()
-    
-    // If we have a blog profile, use its ID directly
-    if (blogProfile?.id) {
+
+    if (blogProfile?.username) {
       setLoading(true)
-      
-      const fetchInterestsForProfile = async () => {
+      const run = async () => {
         try {
-          let query = supabase
-            .from('interests')
-            .select('*')
-            .eq('user_id', blogProfile.id)
-            .order('sequence', { ascending: true })
-            .order('title')
-
-          // Apply active filter if not on manage page
-          query = fetchInterestsQuery(query)
-
-          const { data: userInterests, error } = await query
-
-          if (error) {
-            setInterests([])
-          } else {
-            setInterests(userInterests || [])
-          }
-        } catch (error) {
+          const data = await api.getInterestsByUsername(
+            blogProfile.username.toLowerCase(),
+            includeInactiveForOwner,
+          )
+          setInterests(data || [])
+        } catch {
           setInterests([])
         } finally {
           setLoading(false)
         }
       }
-      
-      fetchInterestsForProfile()
+      run()
       return
     }
-    
-    // If we don't have a blog profile but have a username, fetch the profile first
+
     if (effectiveUsername) {
       setLoading(true)
-      
-      const fetchProfileAndInterests = async () => {
+      const run = async () => {
         try {
-          // Get the profile ID
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('id')
-            .ilike('username', effectiveUsername)
-            .single()
-
-          if (profileError || !profile) {
-            setInterests([])
-            return
-          }
-
-          // Get the interests
-          let query = supabase
-            .from('interests')
-            .select('*')
-            .eq('user_id', profile.id)
-            .order('sequence', { ascending: true })
-            .order('title')
-
-          // Apply active filter if not on manage page
-          query = fetchInterestsQuery(query)
-
-          const { data: userInterests, error } = await query
-
-          if (error) {
-            setInterests([])
-          } else {
-            setInterests(userInterests || [])
-          }
-        } catch (error) {
+          const data = await api.getInterestsByUsername(
+            effectiveUsername.toLowerCase(),
+            includeInactiveForOwner,
+          )
+          setInterests(data || [])
+        } catch {
           setInterests([])
         } finally {
           setLoading(false)
         }
       }
-
-      fetchProfileAndInterests()
+      run()
       return
     }
 
-    // If we have neither, clear interests
     setInterests([])
     setLoading(false)
-  }, [routeUsername, blogProfile, location.pathname, user?.email, isManageRoute])
+  }, [
+    routeUsername,
+    blogProfile?.username,
+    location.pathname,
+    user?.email,
+    isManageRoute,
+    includeInactiveForOwner,
+    getUsernameFromPath,
+  ])
 
   const value = {
     interests,
     loading,
     fetchInterests: async (includeInactive = false) => {
       const effectiveUsername = routeUsername || getUsernameFromPath()
-      if (blogProfile?.id) {
-        let query = supabase
-          .from('interests')
-          .select('*')
-          .eq('user_id', blogProfile.id)
-          .order('sequence', { ascending: true })
-          .order('title')
-        
-        if (!includeInactive) {
-          query = query.eq('is_active', true)
-        }
-        
-        const { data, error } = await query
-        
-        if (error) {
-          return []
-        }
-        return data || []
-      } else if (effectiveUsername) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id')
-          .ilike('username', effectiveUsername)
-          .single()
-        
-        if (profile?.id) {
-          let query = supabase
-            .from('interests')
-            .select('*')
-            .eq('user_id', profile.id)
-            .order('sequence', { ascending: true })
-            .order('title')
-          
-          if (!includeInactive) {
-            query = query.eq('is_active', true)
-          }
-          
-          const { data, error } = await query
-          
-          if (error) {
-            return []
-          }
-          return data || []
-        }
+      const u = blogProfile?.username || effectiveUsername
+      if (!u) return []
+      try {
+        return await api.getInterestsByUsername(u.toLowerCase(), includeInactive)
+      } catch {
+        return []
       }
-      return []
-    }
+    },
   }
 
   return (

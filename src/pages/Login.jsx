@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useProfile } from '../contexts/ProfileContext'
-import { shouldShowUsernameInUrl, getRedirectPath, isHiverarchyDomain, extractUsernameFromDomain } from '../utils/urlUtils'
+import { isHiverarchyDomain } from '../utils/urlUtils'
 import {
   Container,
   Box,

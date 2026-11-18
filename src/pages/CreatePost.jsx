@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import ImageUpload from '../components/ImageUpload'
-import MarkdownEditor from '../components/MarkdownEditor'
 import { useAuth } from '../contexts/AuthContext'
 import { useProfile } from '../contexts/ProfileContext'
 import { shouldShowUsernameInUrl } from '../utils/urlUtils'
@@ -11,9 +10,6 @@ import {
   Paper,
   Typography,
   TextField,
-  FormGroup,
-  FormControlLabel,
-  Checkbox,
   Button,
   Box,
   Alert,
@@ -30,7 +26,6 @@ function CreatePost() {
   const { state } = useLocation()
   const { user } = useAuth()
   const { currentUsername } = useProfile()
-  const defaultUserId = import.meta.env.VITE_DEFAULT_USER
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [tagSuggestions, setTagSuggestions] = useState([])
@@ -47,6 +42,45 @@ function CreatePost() {
     images: []
   })
 
+  const fetchInterests = useCallback(async () => {
+    try {
+      if (!currentUsername) {
+        console.log('No username for fetching interests')
+        return
+      }
+
+      const data = await api.getInterestsByUsername(
+        currentUsername.toLowerCase(),
+        true,
+      )
+
+      setAvailableInterests(
+        (data || []).map((interest) => ({
+          id: interest.id,
+          value: interest.name,
+          label: interest.title,
+        })),
+      )
+    } catch (error) {
+      console.error('Error fetching interests:', error)
+    }
+  }, [currentUsername])
+
+  const fetchAllTags = useCallback(async () => {
+    try {
+      if (!currentUsername) {
+        setTagSuggestions([])
+        return
+      }
+      const data = await api.getTagsByUsername(currentUsername.toLowerCase())
+      const names = (data || []).map((t) => t.name).filter(Boolean)
+      setTagSuggestions(names)
+    } catch (e) {
+      console.error('Error fetching tags:', e)
+      setTagSuggestions([])
+    }
+  }, [currentUsername])
+
   useEffect(() => {
     if (!user) {
       navigate('/')
@@ -55,54 +89,7 @@ function CreatePost() {
 
     fetchAllTags()
     fetchInterests()
-  }, [user])
-
-  async function fetchInterests() {
-    try {
-      if (!user?.id) {
-        console.log('No user ID available for fetching interests')
-        return
-      }
-
-      const { data, error } = await supabase
-        .from('interests')
-        .select('id, name, title')
-        .eq('user_id', user.id)
-        .order('sequence')
-
-      if (error) throw error
-
-      setAvailableInterests(data.map(interest => ({
-        id: interest.id,
-        value: interest.name,
-        label: interest.title
-      })))
-    } catch (error) {
-      console.error('Error fetching interests:', error)
-    }
-  }
-
-  async function fetchAllTags() {
-    try {
-      // Only fetch if we have a user ID
-      if (!user?.id) {
-        console.log('No user ID available for fetching tags')
-        return
-      }
-
-      const { data, error } = await supabase
-        .from('tags')
-        .select('name')
-        .eq('user_id', user.id)
-        .order('name')
-
-      if (error) throw error
-
-      setTagSuggestions(data.map(tag => tag.name))
-    } catch (error) {
-      console.error('Error fetching tags:', error)
-    }
-  }
+  }, [user, navigate, fetchAllTags, fetchInterests])
 
   const handleInterestChange = (interest) => {
     setPost(prev => {
@@ -127,29 +114,6 @@ function CreatePost() {
     })
   }
 
-  const handleTagChange = (tag) => {
-    setPost(prev => {
-      const tagId = tag.id
-      const tagName = tag.name
-
-      // If tag is already selected, remove it
-      if (prev.tag_ids.includes(tagId)) {
-        return {
-          ...prev,
-          tag_ids: prev.tag_ids.filter(id => id !== tagId),
-          tag_names: prev.tag_names.filter(name => name !== tagName)
-        }
-      }
-
-      // Otherwise, add it
-      return {
-        ...prev,
-        tag_ids: [...prev.tag_ids, tagId],
-        tag_names: [...prev.tag_names, tagName]
-      }
-    })
-  }
-
   const handleTagInputChange = (e) => {
     setTagInput(e.target.value)
   }
@@ -163,56 +127,22 @@ function CreatePost() {
 
   const handleAddTag = async (event) => {
     const trimmedInput = event.target.value.trim().toLowerCase()
-    
-    if (trimmedInput && !post.tag_names.includes(trimmedInput)) {
-      try {
-        // First, add to tags table if it doesn't exist
-        const { data, error } = await supabase
-          .from('tags')
-          .insert([{ 
-            name: trimmedInput,
-            user_id: user?.id
-          }])
-          .select()
-          .single()
 
-        if (error) throw error
-        
-        // Update post with new tag
-        setPost(prev => ({
-          ...prev,
-          tag_ids: [...prev.tag_ids, data.id],
-          tag_names: [...prev.tag_names, data.name]
-        }))
-        
-        event.target.value = ''
-        await fetchAllTags()
-      } catch (error) {
-        console.error('Error adding tag:', error)
-      }
+    if (trimmedInput && !post.tag_names.includes(trimmedInput)) {
+      setPost((prev) => ({
+        ...prev,
+        tag_names: [...prev.tag_names, trimmedInput],
+      }))
+      event.target.value = ''
     }
   }
 
   const handleTagSelect = async (tagName) => {
     if (!post.tag_names.includes(tagName)) {
-      try {
-        // Get the tag ID from the database
-        const { data, error } = await supabase
-          .from('tags')
-          .select('id')
-          .eq('name', tagName)
-          .single()
-
-        if (error) throw error
-
-        setPost(prev => ({
-          ...prev,
-          tag_ids: [...prev.tag_ids, data.id],
-          tag_names: [...prev.tag_names, tagName]
-        }))
-      } catch (error) {
-        console.error('Error getting tag ID:', error)
-      }
+      setPost((prev) => ({
+        ...prev,
+        tag_names: [...prev.tag_names, tagName],
+      }))
     }
     setTagInput('')
   }
@@ -239,66 +169,40 @@ function CreatePost() {
     setError(null)
 
     try {
-      // For child posts, use parent's arc_id, otherwise generate a new one
-      const arc_id = state?.parentPost ? state.parentPost.arc_id : crypto.randomUUID()
+      const newPost = await api.createPost({
+        title: post.title,
+        brief_description: post.brief_description,
+        content: post.content,
+        tag_names: post.tag_names,
+        tag_ids: post.tag_ids,
+        interest_names: post.interest_names,
+        interest_ids: post.interest_ids,
+        arc_id: state?.parentPost?.arc_id,
+        parent_id: state?.parentPost?.id || undefined,
+        post_writer: {
+          status: 'child_posts',
+          version: 1,
+          content: post.brief_description || '',
+          ideas: {
+            ideas: [],
+            relatedTopics: [],
+            audiences: [],
+            childPosts: [],
+            futurePosts: [],
+          },
+          research_findings: null,
+          refutations: null,
+          post_outline: null,
+          post_images: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      })
 
-      // Create the post
-      const { data: newPost, error: createError } = await supabase
-        .from('posts')
-        .insert([{
-          title: post.title,
-          brief_description: post.brief_description,
-          content: post.content,
-          tag_names: post.tag_names,
-          tag_ids: post.tag_ids,
-          interest_names: post.interest_names,
-          interest_ids: post.interest_ids,
-          user_id: user.id,
-          arc_id: arc_id,
-          parent_id: state?.parentPost?.id || null,
-          post_writer: {
-            status: 'child_posts',
-            version: 1,
-            content: post.brief_description || '',
-            ideas: { ideas: [], relatedTopics: [], audiences: [], childPosts: [], futurePosts: [] },
-            research_findings: null,
-            refutations: null,
-            post_outline: null,
-            post_images: [],
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        }])
-        .select()
-        .single()
-
-      if (createError) throw createError
-
-      // If this is not a child post, update arc_id to be the post's own ID
-      if (!state?.parentPost) {
-        const { error: updateError } = await supabase
-          .from('posts')
-          .update({ arc_id: newPost.id })
-          .eq('id', newPost.id)
-
-        if (updateError) throw updateError
-      }
-
-      // Handle image uploads if any
-      if (post.images && post.images.length > 0) {
-        const { error: imageError } = await supabase
-          .from('images')
-          .insert(
-            post.images.map(image => ({
-              url: image.url,
-              post_id: newPost.id
-            }))
-          )
-
-        if (imageError) throw imageError
-      }
-
-      navigate(`/${currentUsername}/post/${newPost.id}`)
+      const postId = newPost.id.includes(':')
+        ? newPost.id.split(':').pop()
+        : newPost.id
+      navigate(`/${currentUsername}/post/${postId}`)
     } catch (error) {
       console.error('Error creating post:', error)
       setError('Failed to create post. Please try again.')

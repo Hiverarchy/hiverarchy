@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState, useEffect, useCallback } from 'react'
+import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import Refutation from './Refutation'
 import {
@@ -21,49 +21,28 @@ function RefutationList({ postId, onCountChange }) {
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
-    fetchRefutations()
-  }, [postId])
-
-  useEffect(() => {
-    if (onCountChange) {
-      onCountChange(refutations.length)
-    }
-  }, [refutations.length, onCountChange])
-
-  const fetchRefutations = async () => {
+  const fetchRefutations = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('refutations')
-        .select(`
-          *,
-          profile:profiles (
-            id,
-            username,
-            email
-          )
-        `)
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true })
+      const data = (await api.getRefutations(postId)) || []
 
-      if (error) throw error
-
-      // Organize refutations into a tree structure
       const refutationMap = new Map()
       const rootRefutations = []
 
-      data.forEach(refutation => {
+      data.forEach((refutation) => {
         refutation.user_email = refutation.profile?.email
         refutation.username = refutation.profile?.username
         refutation.replies = []
-        refutationMap.set(refutation.id, refutation)
+        refutationMap.set(String(refutation.id), refutation)
       })
 
-      data.forEach(refutation => {
-        if (refutation.parent_id) {
-          const parent = refutationMap.get(refutation.parent_id)
+      data.forEach((refutation) => {
+        const pid = refutation.parent_id ? String(refutation.parent_id) : null
+        if (pid) {
+          const parent = refutationMap.get(pid)
           if (parent) {
             parent.replies.push(refutation)
+          } else {
+            rootRefutations.push(refutation)
           }
         } else {
           rootRefutations.push(refutation)
@@ -77,9 +56,19 @@ function RefutationList({ postId, onCountChange }) {
       setError(error.message)
       setLoading(false)
     }
-  }
+  }, [postId])
 
-  async function handleSubmit(e, parentId = null) {
+  useEffect(() => {
+    fetchRefutations()
+  }, [fetchRefutations])
+
+  useEffect(() => {
+    if (onCountChange) {
+      onCountChange(refutations.length)
+    }
+  }, [refutations.length, onCountChange])
+
+  async function handleSubmit(e) {
     e.preventDefault()
     if (!user || !newRefutation.trim()) return
 
@@ -87,24 +76,12 @@ function RefutationList({ postId, onCountChange }) {
     setError(null)
 
     try {
-      const { error } = await supabase
-        .from('refutations')
-        .insert([
-          {
-            content: newRefutation.trim(),
-            post_id: postId,
-            profile_id: user.id,
-            parent_id: parentId
-          }
-        ])
-
-      if (error) throw error
-
+      await api.createRefutation(postId, { content: newRefutation.trim() })
       setNewRefutation('')
       await fetchRefutations()
     } catch (error) {
       console.error('Error adding refutation:', error)
-      setError('Failed to add refutation. Please try again.')
+      setError(error.message || 'Failed to add refutation. Please try again.')
     } finally {
       setSubmitting(false)
     }
@@ -113,39 +90,25 @@ function RefutationList({ postId, onCountChange }) {
   async function handleDelete(refutationId) {
     try {
       setError(null)
-      const { error } = await supabase
-        .from('refutations')
-        .delete()
-        .eq('id', refutationId)
-
-      if (error) throw error
-
+      await api.deleteRefutation(refutationId)
       await fetchRefutations()
     } catch (error) {
       console.error('Error deleting refutation:', error)
-      setError('Failed to delete refutation. Please try again.')
+      setError(error.message || 'Failed to delete refutation. Please try again.')
     }
   }
 
   const handleReply = async (parentId, content) => {
     try {
-      const { error } = await supabase
-        .from('refutations')
-        .insert([
-          {
-            content: content.trim(),
-            post_id: postId,
-            profile_id: user.id,
-            parent_id: parentId
-          }
-        ])
-
-      if (error) throw error
-
+      setError(null)
+      await api.createRefutation(postId, {
+        content: content.trim(),
+        parent_id: parentId,
+      })
       await fetchRefutations()
     } catch (error) {
       console.error('Error adding reply:', error)
-      setError('Failed to add reply. Please try again.')
+      setError(error.message || 'Failed to add reply. Please try again.')
     }
   }
 

@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import MDEditor from '@uiw/react-md-editor'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import CommentList from '../components/CommentList'
 import ConfirmModal from '../components/ConfirmModal'
 import { useAuth } from '../contexts/AuthContext'
@@ -41,11 +41,57 @@ export default function ViewPost() {
   const { user } = useAuth()
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const isAuthor = user && post && user.id === post.user_id
-  const isChildPost = post && post.arc_id && post.arc_id !== post.id
   const { currentUsername } = useProfile()
   const [isArcMode, setIsArcMode] = useState(false)
   const isMobile = useIsMobile()
   const [relatedArcId, setRelatedArcId] = useState(null)
+
+  const fetchPostImages = useCallback(async () => {
+    return []
+  }, [])
+
+  const fetchPost = useCallback(async () => {
+    try {
+      const data = await api.getPost(id)
+      setPost({
+        ...data,
+        username: currentUsername,
+      })
+      setLoading(false)
+    } catch (error) {
+      console.error('Error fetching post:', error)
+      setError('Failed to load post')
+      setLoading(false)
+    }
+  }, [id, currentUsername])
+
+  const fetchParentPost = useCallback(async (parentId) => {
+    try {
+      const data = await api.getPost(parentId)
+      setParentPost({
+        ...data,
+        username: currentUsername,
+      })
+    } catch (error) {
+      console.error('Error fetching parent post:', error)
+    }
+  }, [currentUsername])
+
+  const fetchChildPosts = useCallback(async (postId) => {
+    try {
+      const data = await api.getPostsByParent(postId)
+      const postsWithUsername = (data || []).map((p) => ({
+        ...p,
+        username: currentUsername,
+      }))
+      const uniquePosts = Array.from(
+        new Map(postsWithUsername.map((p) => [p.id, p])).values(),
+      )
+      setChildPosts(uniquePosts)
+    } catch (error) {
+      console.error('Error fetching child posts:', error)
+    }
+  }, [currentUsername])
 
   useEffect(() => {
     if (id) {
@@ -58,18 +104,18 @@ export default function ViewPost() {
       setRelatedArcId(null)
       fetchPost()
     }
-  }, [id, currentUsername])
+  }, [id, fetchPost])
 
   useEffect(() => {
     if (post?.id) {
-      fetchPostImages(post.id).then(images => {
-        setPost(prev => ({
+      fetchPostImages().then((images) => {
+        setPost((prev) => ({
           ...prev,
-          images
+          images,
         }))
       })
     }
-  }, [post?.id])
+  }, [post?.id, fetchPostImages])
 
   useEffect(() => {
     if (post) {
@@ -82,105 +128,13 @@ export default function ViewPost() {
       setIsArcMode(hasValidArcId)
       setRelatedArcId(hasValidArcId ? post.arc_id : post.id)
     }
-  }, [post])
-
-  const fetchPost = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          *,
-          images (
-            url
-          )
-        `)
-        .eq('id', id)
-        .single()
-
-      if (error) throw error
-
-      setPost({
-        ...data,
-        username: currentUsername
-      })
-      setLoading(false)
-    } catch (error) {
-      console.error('Error fetching post:', error)
-      setError('Failed to load post')
-      setLoading(false)
-    }
-  }
-
-  // Fetch images separately if needed
-  const fetchPostImages = async (postId) => {
-    try {
-      const { data, error } = await supabase
-        .from('images')
-        .select('url')
-        .eq('post_id', postId)
-
-      if (error) throw error
-
-      return data
-    } catch (error) {
-      console.error('Error fetching images:', error)
-      return []
-    }
-  }
-
-  async function fetchParentPost(parentId) {
-    try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select('*')
-        .eq('id', parentId)
-        .single()
-
-      if (error) throw error
-
-      setParentPost({
-        ...data,
-        username: currentUsername
-      })
-    } catch (error) {
-      console.error('Error fetching parent post:', error)
-    }
-  }
-
-  async function fetchChildPosts(postId) {
-    try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select('id, title, created_at')
-        .eq('parent_id', postId)
-        .order('created_at', { ascending: true })
-
-      if (error) throw error
-      
-      // Add username and remove duplicates
-      const postsWithUsername = data.map(post => ({
-        ...post,
-        username: currentUsername
-      }))
-      const uniquePosts = postsWithUsername ? Array.from(new Map(postsWithUsername.map(post => [post.id, post])).values()) : []
-      setChildPosts(uniquePosts)
-    } catch (error) {
-      console.error('Error fetching child posts:', error)
-    }
-  }
+  }, [post, fetchParentPost, fetchChildPosts])
 
   async function handleDelete() {
     try {
-      const { error } = await supabase
-        .from('posts')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
-
-      // Get the first interest or default to 'coder'
-      const defaultInterest = post?.interests?.[0] || 'coder'
-      navigate(`/${defaultInterest}`)
+      await api.deletePost(id)
+      const defaultInterest = post?.interest_names?.[0] || post?.interests?.[0] || 'coder'
+      navigate(`/${currentUsername}/interest/${defaultInterest}`)
     } catch (error) {
       console.error('Error deleting post:', error)
       setError('Failed to delete post. Please try again.')
@@ -194,65 +148,38 @@ export default function ViewPost() {
 
   const handlePostSelect = async (post) => {
     try {
-      // If we receive a post object, extract the ID
-      const postId = typeof post === 'object' && post !== null ? post.id : post;
-      
+      const postId =
+        typeof post === 'object' && post !== null ? post.id : post
+
       if (!postId) {
-        console.error('Invalid post ID');
-        setError('Failed to load post: Invalid post ID');
-        return;
+        console.error('Invalid post ID')
+        setError('Failed to load post: Invalid post ID')
+        return
       }
 
-      // Fetch all data in parallel
-      const [postData, parentData, childData] = await Promise.all([
-        supabase
-          .from('posts')
-          .select(`
-            *,
-            images (
-              url
-            )
-          `)
-          .eq('id', postId)
-          .single()
-          .then(({ data, error }) => {
-            if (error) throw error
-            return {
-              ...data,
-              username: currentUsername
-            }
-          }),
-        supabase
-          .from('posts')
-          .select('*')
-          .eq('id', postId)
-          .single()
-          .then(({ data, error }) => {
-            if (error) return null
-            return {
-              ...data,
-              username: currentUsername
-            }
-          }),
-        supabase
-          .from('posts')
-          .select('id, title, created_at')
-          .eq('parent_id', postId)
-          .order('created_at', { ascending: true })
-          .then(({ data, error }) => {
-            if (error) return []
-            const postsWithUsername = data.map(post => ({
-              ...post,
-              username: currentUsername
-            }))
-            return Array.from(new Map(postsWithUsername.map(post => [post.id, post])).values())
-          })
-      ])
+      const postData = await api.getPost(postId)
+      const normalized = { ...postData, username: currentUsername }
+      setPost(normalized)
 
-      // Update all state at once
-      setPost(postData)
-      if (parentData) setParentPost(parentData)
-      setChildPosts(childData)
+      if (postData.parent_id) {
+        try {
+          const p = await api.getPost(postData.parent_id)
+          setParentPost({ ...p, username: currentUsername })
+        } catch {
+          setParentPost(null)
+        }
+      } else {
+        setParentPost(null)
+      }
+
+      const children = await api.getPostsByParent(postId)
+      const withUser = (children || []).map((p) => ({
+        ...p,
+        username: currentUsername,
+      }))
+      setChildPosts(
+        Array.from(new Map(withUser.map((p) => [p.id, p])).values()),
+      )
     } catch (error) {
       console.error('Error fetching post:', error)
       setError('Failed to load post')

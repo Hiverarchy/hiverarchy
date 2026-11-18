@@ -1,13 +1,12 @@
 import { Helmet } from 'react-helmet'
-import { useParams, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { useProfile } from '../contexts/ProfileContext'
 import { useEffect, useState } from 'react'
-import { shouldShowWelcomePage, isHiverarchyDomain } from '../utils/urlUtils'
+import { shouldShowWelcomePage } from '../utils/urlUtils'
 
 const DocumentHead = () => {
   const { blogProfile, currentUsername, getFullLogoUrl } = useProfile()
   const location = useLocation()
-  const { postId } = useParams()
   const [pageTitle, setPageTitle] = useState('Hiverarchy')
   const [faviconUrl, setFaviconUrl] = useState('/images/hiverarchy.jpeg')
   const isWelcomePage = shouldShowWelcomePage()

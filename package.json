@@ -1,5 +1,5 @@
 {
-  "name": "gg-blog",
+  "name": "@hiverarchy/web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -16,7 +16,10 @@
     "build:hierarchy": "vite build --mode hierarchy",
     "deploy": "vite build && gh-pages -d dist",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.18.0",
@@ -25,7 +28,6 @@
     "@mui/icons-material": "^6.1.7",
     "@mui/material": "^6.1.7",
     "@mui/x-tree-view": "^7.26.0",
-    "@supabase/supabase-js": "^2.46.1",
     "@uiw/react-md-editor": "^4.0.4",
     "date-fns": "^4.1.0",
     "lodash": "^4.17.21",
@@ -38,6 +40,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
+    "@playwright/test": "^1.50.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
@@ -49,6 +52,7 @@
     "gh-pages": "^6.3.0",
     "globals": "^15.11.0",
     "postcss": "^8.4.49",
-    "vite": "^5.4.10"
+    "vite": "^5.4.10",
+    "vitest": "^3.0.5"
   }
 }

@@ -28,7 +28,6 @@ import UpdateIcon from '@mui/icons-material/Update'
 import MenuIcon from '@mui/icons-material/Menu'
 import CloseIcon from '@mui/icons-material/Close'
 import { useState } from 'react'
-import { shouldShowUsernameInUrl } from '../utils/urlUtils'
 import { useIsMobile } from '../utils/responsive'
 import Typography from '@mui/material/Typography'
 
@@ -63,9 +62,6 @@ export default function Navbar() {
     navigate(path)
     setMobileMenuOpen(false)
   }
-
-  // Get the active profile (blog profile or user profile)
-  const activeProfile = blogProfile || userProfile
 
   // Check if we're on the welcome page
   const isWelcomePage = location.pathname === '/'

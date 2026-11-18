@@ -1,11 +1,11 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { OpenAIService } from './openai'
 import { AnthropicService } from './anthropic'
 import { GrokService } from './grok'
 import { PerplexityService } from './perplexity'
 import SerperService from './serper'
 import { useAuth } from '../../contexts/AuthContext'
-import { supabase } from '../../lib/supabase'
+import { api } from '../../lib/api'
 
 // Define which services are available for each development step
 export const STEP_SERVICES = {
@@ -21,60 +21,19 @@ export function AIProvider({ children }) {
   const { user } = useAuth()
   const [currentService, setCurrentService] = useState('')
   const [services, setServices] = useState({})
-  const [loading, setLoading] = useState(false)
+  const [loading] = useState(false)
   const [profile, setProfile] = useState(null)
   const [currentStep, setCurrentStep] = useState('ideation')
 
-  useEffect(() => {
-    if (user?.id) {
-      console.log('AIProvider: User ID detected, loading profile')
-      loadProfile()
-    }
-  }, [user?.id])
-
-  // Add effect to initialize services when profile is loaded
-  useEffect(() => {
-    if (profile) {
-      console.log('AIProvider: Profile loaded, initializing services')
-      const initializeServices = async () => {
-        for (const serviceType of ['openai', 'anthropic', 'grok', 'perplexity', 'serper']) {
-          console.log(`AIProvider: Initializing ${serviceType} service`)
-          const service = await initializeService(serviceType)
-          if (service) {
-            console.log(`AIProvider: Successfully initialized ${serviceType} service`)
-            setServices(prev => ({ ...prev, [serviceType]: service }))
-            if (!currentService) {
-              console.log(`AIProvider: Setting ${serviceType} as current service`)
-              setCurrentService(serviceType)
-            }
-          } else {
-            console.log(`AIProvider: Failed to initialize ${serviceType} service`)
-          }
-        }
-      }
-      initializeServices()
-    }
-  }, [profile])
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     if (!user?.id) {
       console.log('AIProvider: No user ID available')
       return null
     }
 
     try {
-      console.log('AIProvider: Loading profile from Supabase')
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-
-      if (error) {
-        console.error('AIProvider: Error loading profile:', error)
-        return null
-      }
-
+      console.log('AIProvider: Loading profile from API')
+      const data = await api.getProfileMe()
       console.log('AIProvider: Profile loaded successfully')
       setProfile(data)
       return data
@@ -82,9 +41,9 @@ export function AIProvider({ children }) {
       console.error('AIProvider: Exception loading profile:', error)
       return null
     }
-  }
+  }, [user?.id])
 
-  const initializeService = async (serviceType) => {
+  const initializeService = useCallback(async (serviceType) => {
     console.log(`AIProvider: Checking API key for ${serviceType}`)
     if (!profile?.[`api_${serviceType}`]) {
       console.log(`AIProvider: No API key found for ${serviceType}`)
@@ -113,14 +72,47 @@ export function AIProvider({ children }) {
       }
       if (service) {
         console.log(`AIProvider: Successfully created ${serviceType} service`)
-        services[serviceType] = service
       }
       return service
     } catch (error) {
       console.error(`AIProvider: Error initializing ${serviceType} service:`, error)
       return null
     }
-  }
+  }, [profile])
+
+  useEffect(() => {
+    if (user?.id) {
+      console.log('AIProvider: User ID detected, loading profile')
+      void loadProfile()
+    }
+  }, [user?.id, loadProfile])
+
+  useEffect(() => {
+    if (!profile) return
+
+    let cancelled = false
+    console.log('AIProvider: Profile loaded, initializing services')
+
+    const initializeServices = async () => {
+      for (const serviceType of ['openai', 'anthropic', 'grok', 'perplexity', 'serper']) {
+        console.log(`AIProvider: Initializing ${serviceType} service`)
+        const service = await initializeService(serviceType)
+        if (cancelled) return
+        if (service) {
+          console.log(`AIProvider: Successfully initialized ${serviceType} service`)
+          setServices((prev) => ({ ...prev, [serviceType]: service }))
+          setCurrentService((cs) => cs || serviceType)
+        } else {
+          console.log(`AIProvider: Failed to initialize ${serviceType} service`)
+        }
+      }
+    }
+
+    void initializeServices()
+    return () => {
+      cancelled = true
+    }
+  }, [profile, initializeService])
 
   const getCurrentService = async () => {
     console.log('AIProvider: Getting current service')
@@ -143,20 +135,6 @@ export function AIProvider({ children }) {
     console.error('AIProvider: No AI service available')
     return null
   }
-
-  useEffect(() => {
-    const initServices = async () => {
-      const loadedProfile = await loadProfile()
-      if (loadedProfile) {
-        setProfile(loadedProfile)
-        for (const serviceType of ['openai', 'anthropic', 'grok', 'perplexity', 'serper']) {
-          await initializeService(serviceType)
-        }
-      }
-    }
-
-    initServices()
-  }, [user])
 
   const value = {
     currentService,

@@ -4,7 +4,7 @@ export default class SerperService {
     this.baseUrl = 'https://google.serper.dev/search';
   }
 
-  async generateCompletion(prompt, options = {}) {
+  async generateCompletion(prompt) {
     const headers = new Headers();
     headers.append("X-API-KEY", this.apiKey);
     headers.append("Content-Type", "application/json");

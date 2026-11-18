@@ -1,12 +1,8 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../lib/supabase'
-import MarkdownEditor from '../components/MarkdownEditor'
-import ImageUpload from '../components/ImageUpload'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Container,
   Typography,
+  Box,
   Button,
   Table,
   TableBody,
@@ -20,529 +16,254 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  IconButton,
-  Box,
-  Grid,
-  Switch,
   FormControlLabel,
-  Tooltip
+  Switch,
+  IconButton,
+  Alert,
+  CircularProgress,
 } from '@mui/material'
-import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
-import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined'
-import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined'
-import VisibilityIcon from '@mui/icons-material/Visibility'
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+import EditIcon from '@mui/icons-material/Edit'
+import DeleteIcon from '@mui/icons-material/Delete'
+import AddIcon from '@mui/icons-material/Add'
+import { api } from '../lib/api'
+import { useProfile } from '../contexts/ProfileContext'
 
-function ManageInterests() {
-  const { user } = useAuth()
-  const navigate = useNavigate()
-  const [interests, setInterests] = useState([])
-  const [open, setOpen] = useState(false)
-  const [editingInterest, setEditingInterest] = useState(null)
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    image_path: '',
-    content: '',
-    name: '',
-    sequence: 0
-  })
+const emptyForm = {
+  title: '',
+  name: '',
+  description: '',
+  route_path: '',
+  sequence: 0,
+  is_active: true,
+}
+
+export default function ManageInterests() {
+  const { userProfile, blogProfile } = useProfile()
+  const username = userProfile?.username || blogProfile?.username
+  const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [confirmDialog, setConfirmDialog] = useState({ open: false, interest: null, action: '' })
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!username) {
+      setRows([])
+      setLoading(false)
+      return
+    }
+    setError(null)
+    try {
+      const data = await api.getInterestsByUsername(String(username).toLowerCase(), true)
+      setRows(Array.isArray(data) ? data : [])
+    } catch (e) {
+      setError(e.message || 'Failed to load interests')
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }, [username])
 
   useEffect(() => {
-    // Check if user is authenticated
-    if (user) {
-      setupStorage()
-      fetchInterests()
-    } else {
-      // Redirect to login if not authenticated
-      navigate('/')
-    }
-  }, [user])
+    setLoading(true)
+    load()
+  }, [load])
 
-  const setupStorage = async () => {
-    try {
-      const { data: buckets } = await supabase.storage.listBuckets()
-      const bucketExists = buckets.some(bucket => bucket.name === 'interest-images')
-      
-      if (!bucketExists) {
-        const { error } = await supabase.storage.createBucket('interest-images', {
-          public: true,
-          allowedMimeTypes: ['image/*'],
-          fileSizeLimit: 5242880, // 5MB
-        })
-        
-        if (error) {
-          console.error('Error creating bucket:', error)
-        }
-      }
-    } catch (error) {
-      console.error('Error in setupStorage:', error)
-    }
+  const openCreate = () => {
+    setEditingId(null)
+    setForm(emptyForm)
+    setDialogOpen(true)
   }
 
-  const fetchInterests = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-
-      // Query interests that belong to the current user
-      let { data, error } = await supabase
-        .from('interests')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('sequence', { ascending: true })
-        .order('title')
-
-      if (error) throw error
-      console.log('Fetched interests:', data)
-      setInterests(data)
-      setLoading(false)
-    } catch (error) {
-      console.error('Error fetching interests:', error)
-      setError('Failed to fetch interests')
-      setLoading(false)
-    }
-  }
-
-  const handleOpen = (interest = null) => {
-    if (interest) {
-      setEditingInterest(interest)
-      setFormData({
-        title: interest.title,
-        description: typeof interest.description === 'object' 
-          ? JSON.stringify(interest.description, null, 2)
-          : interest.description || '',
-        image_path: interest.image_path || '',
-        content: interest.content || '',
-        name: interest.name || '',
-        sequence: interest.sequence || 0
-      })
-    } else {
-      setEditingInterest(null)
-      setFormData({
-        title: '',
-        description: '',
-        image_path: '',
-        content: '',
-        name: '',
-        sequence: 0
-      })
-    }
-    setOpen(true)
-  }
-
-  const handleClose = () => {
-    setOpen(false)
-    setEditingInterest(null)
-    setFormData({
-      title: '',
-      description: '',
-      image_path: '',
-      content: '',
-      name: '',
-      sequence: 0
+  const openEdit = (row) => {
+    setEditingId(row.id)
+    setForm({
+      title: row.title ?? '',
+      name: row.name ?? '',
+      description: row.description ?? '',
+      route_path: row.route_path ?? '',
+      sequence: row.sequence ?? 0,
+      is_active: row.is_active !== false,
     })
+    setDialogOpen(true)
   }
 
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
-  }
-
-  const handleMarkdownChange = (name) => (value) => {
-    setFormData(prev => ({
-      ...prev,
-      [name]: value || ''
-    }))
-  }
-
-  const handleImageUpload = (uploadedImages) => {
-    if (uploadedImages && uploadedImages.length > 0) {
-      setFormData(prev => ({
-        ...prev,
-        image_path: uploadedImages[0]
-      }))
+  const handleSave = async () => {
+    if (!form.title.trim()) {
+      setError('Title is required')
+      return
     }
-  }
-
-  const handleRemoveImage = () => {
-    setFormData(prev => ({
-      ...prev,
-      image_path: ''
-    }))
-  }
-
-  const handleSubmit = async () => {
+    setSaving(true)
+    setError(null)
     try {
-      // First, make a select query to refresh the schema cache
-      await supabase
-        .from('interests')
-        .select('id')
-        .limit(1)
-
-      // Only include fields that exist in the database schema
-      const submissionData = {
-        id: editingInterest ? editingInterest.id : crypto.randomUUID(),
-        title: formData.title,
-        description: formData.description,
-        image_path: formData.image_path || '/images/default.jpg',
-        name: formData.name || formData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        sequence: formData.sequence || 0,
-        content: formData.content || '',
-        user_id: user.id,
-        is_active: editingInterest ? editingInterest.is_active : true // Keep existing state or default to true for new
+      const body = {
+        title: form.title.trim(),
+        name: form.name?.trim() || undefined,
+        description: form.description || undefined,
+        route_path: form.route_path || undefined,
+        sequence: Number(form.sequence) || 0,
+        is_active: form.is_active,
       }
-
-      if (editingInterest) {
-        const { error } = await supabase
-          .from('interests')
-          .update(submissionData)
-          .eq('id', editingInterest.id)
-
-        if (error) throw error
+      if (editingId) {
+        await api.patchInterest(editingId, body)
       } else {
-        const { error } = await supabase
-          .from('interests')
-          .insert([submissionData])
-
-        if (error) throw error
+        await api.createInterest(body)
       }
-
-      handleClose()
-      fetchInterests()
-    } catch (error) {
-      console.error('Error saving interest:', error)
+      setDialogOpen(false)
+      await load()
+    } catch (e) {
+      setError(e.message || 'Save failed')
+    } finally {
+      setSaving(false)
     }
   }
 
   const handleDelete = async (id) => {
-    if (!user?.id) return
-
+    if (!window.confirm('Delete this interest?')) return
+    setError(null)
     try {
-      const { data: existingInterest, error: fetchError } = await supabase
-        .from('interests')
-        .select('*')
-        .eq('id', id)
-        .single()
-
-      if (fetchError) throw fetchError
-
-      const { error: deleteError } = await supabase
-        .from('interests')
-        .delete()
-        .eq('id', id)
-
-      if (deleteError) throw deleteError
-
-      setInterests(interests.filter(interest => interest.id !== id))
-    } catch (error) {
-      setError('Failed to delete interest')
+      await api.deleteInterest(id)
+      await load()
+    } catch (e) {
+      setError(e.message || 'Delete failed')
     }
   }
 
-  const createInitialInterests = async () => {
-    const initialInterests = [
-      {
-        title: 'Coding Journey',
-        description: JSON.stringify({
-          sections: [
-            { title: 'Near the metal', items: ['Assembler', 'C++'] },
-            { title: 'Business Developer', items: ['Power Builder', 'VB', 'C#', '.NET', 'SS(RAI)S', 'Angular'] },
-            { title: 'Semi-Retirement', items: ['React', 'AI', 'Mentoring'] }
-          ]
-        }),
-        image_path: '/images/default.jpg',
-        name: 'coding',
-        sequence: 1,
-        content: '# Coding Journey\n\nFrom assembly language to modern web development, my journey in software development spans decades of technological evolution.'
-      },
-      {
-        title: 'Golf Adventures',
-        description: JSON.stringify({
-          text: 'Sharing golf experiences, tips, and achievements'
-        }),
-        image_path: '/images/default.jpg',
-        name: 'golf',
-        sequence: 2,
-        content: '# Golf Adventures\n\nExploring the game of golf, sharing experiences, and documenting the journey of improvement.'
-      },
-      {
-        title: 'Mentorship',
-        description: JSON.stringify({
-          text: 'Guiding and supporting others in their journey'
-        }),
-        image_path: '/images/default.jpg',
-        name: 'mentoring',
-        sequence: 3,
-        content: '# Mentorship\n\nSharing knowledge and experience to help others grow in their careers and personal development.'
-      },
-      {
-        title: "Life's Journey",
-        description: JSON.stringify({
-          text: 'Insights and reflections on the aging process'
-        }),
-        image_path: '/images/default.jpg',
-        name: 'aging',
-        sequence: 4,
-        content: "# Life's Journey\n\nReflections on aging, personal growth, and the continuous process of learning and adaptation."
-      }
-    ]
-
-    for (const interest of initialInterests) {
-      try {
-        const newId = crypto.randomUUID()
-        const { error } = await supabase
-          .from('interests')
-          .insert([{
-            ...interest,
-            id: newId,
-            user_id: user.id
-          }])
-
-        if (error) throw error
-      } catch (error) {
-        console.error('Error creating interest:', error)
-      }
-    }
-
-    fetchInterests()
+  if (!username) {
+    return (
+      <Container maxWidth="md" sx={{ mt: 4 }}>
+        <Alert severity="info">Set up your profile (username) before managing interests.</Alert>
+      </Container>
+    )
   }
 
-  const handleToggleActive = async (interest) => {
-    try {
-      const newActiveState = !interest.is_active
-      console.log('Toggling interest:', interest.title, 'to:', newActiveState)
-      
-      const { error } = await supabase
-        .from('interests')
-        .update({ is_active: newActiveState })
-        .eq('id', interest.id)
-
-      if (error) throw error
-
-      console.log('Successfully updated interest active state')
-      
-      // Update local state
-      setInterests(interests.map(i => 
-        i.id === interest.id ? { ...i, is_active: newActiveState } : i
-      ))
-    } catch (error) {
-      console.error('Error toggling interest active state:', error)
-      alert('Failed to update interest status')
-    }
-  }
-
-  const handleConfirmToggle = (interest) => {
-    if (interest.is_active) {
-      // If deactivating, show confirmation dialog
-      setConfirmDialog({
-        open: true,
-        interest,
-        action: 'deactivate',
-        title: 'Deactivate Interest?',
-        message: 'This interest will be hidden from navigation and the home page. Users will not be able to access it. Continue?'
-      })
-    } else {
-      // If activating, no need for confirmation
-      handleToggleActive(interest)
-    }
+  if (loading) {
+    return (
+      <Container maxWidth="md" sx={{ mt: 4, display: 'flex', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Container>
+    )
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      {!user ? (
-        <Paper elevation={3} sx={{ p: 4, textAlign: 'center', mt: 4 }}>
-          <Typography variant="h4" gutterBottom>
-            Authentication Required
-          </Typography>
-          <Typography variant="body1" paragraph>
-            You need to be logged in to manage your interests.
-          </Typography>
-          <Button 
-            variant="contained" 
-            color="primary" 
-            onClick={() => navigate('/')}
-            sx={{ mt: 2 }}
-          >
-            Return to Home
-          </Button>
-        </Paper>
-      ) : (
-        <>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-            <Typography variant="h4" component="h1">
-              Manage Interests
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddCircleOutlineOutlinedIcon />}
-              onClick={() => handleOpen()}
-            >
-              Add Interest
-            </Button>
-          </Box>
+    <Container maxWidth="md" sx={{ mt: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5">Manage interests</Typography>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
+          Add interest
+        </Button>
+      </Box>
 
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Title</TableCell>
-                  <TableCell>Description</TableCell>
-                  <TableCell align="center">Status</TableCell>
-                  <TableCell align="center">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {interests.map((interest) => (
-                  <TableRow key={interest.id}>
-                    <TableCell>{interest.title}</TableCell>
-                    <TableCell>{interest.description}</TableCell>
-                    <TableCell align="center">
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Tooltip title={interest.is_active ? 'Active' : 'Inactive'}>
-                          <IconButton size="small" sx={{ mr: 1 }}>
-                            {interest.is_active ? 
-                              <VisibilityIcon color="primary" /> : 
-                              <VisibilityOffIcon color="action" />
-                            }
-                          </IconButton>
-                        </Tooltip>
-                        <Switch
-                          checked={interest.is_active}
-                          onChange={() => handleConfirmToggle(interest)}
-                          color="primary"
-                        />
-                      </Box>
-                    </TableCell>
-                    <TableCell align="center">
-                      <IconButton onClick={() => handleOpen(interest)}>
-                        <EditOutlinedIcon />
-                      </IconButton>
-                      <IconButton onClick={() => handleDelete(interest.id)}>
-                        <DeleteOutlineOutlinedIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-            <DialogTitle>
-              {editingInterest ? 'Edit Interest' : 'Add Interest'}
-            </DialogTitle>
-            <DialogContent>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <TextField
-                    name="title"
-                    label="Title"
-                    value={formData.title}
-                    onChange={handleChange}
-                    fullWidth
-                    margin="normal"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    name="name"
-                    label="URL Name (optional)"
-                    value={formData.name}
-                    onChange={handleChange}
-                    fullWidth
-                    margin="normal"
-                    helperText="Leave blank to auto-generate from title"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    name="description"
-                    label="Description"
-                    value={formData.description}
-                    onChange={handleChange}
-                    fullWidth
-                    multiline
-                    rows={3}
-                    margin="normal"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Interest Image
-                  </Typography>
-                  <ImageUpload 
-                    onUpload={handleImageUpload}
-                    onRemove={handleRemoveImage}
-                    existingImages={formData.image_path ? [formData.image_path] : []}
-                    bucket="interest-images"
-                    folder="interest-images"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Content
-                  </Typography>
-                  <MarkdownEditor
-                    value={formData.content}
-                    onChange={handleMarkdownChange('content')}
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    name="sequence"
-                    label="Sequence"
-                    type="number"
-                    value={formData.sequence}
-                    onChange={handleChange}
-                    fullWidth
-                    margin="normal"
-                  />
-                </Grid>
-              </Grid>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleSubmit} variant="contained" color="primary">
-                {editingInterest ? 'Save Changes' : 'Create Interest'}
-              </Button>
-            </DialogActions>
-          </Dialog>
-
-          <Dialog
-            open={confirmDialog.open}
-            onClose={() => setConfirmDialog({ ...confirmDialog, open: false })}
-          >
-            <DialogTitle>{confirmDialog.title}</DialogTitle>
-            <DialogContent>
-              <Typography>{confirmDialog.message}</Typography>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setConfirmDialog({ ...confirmDialog, open: false })}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  handleToggleActive(confirmDialog.interest)
-                  setConfirmDialog({ ...confirmDialog, open: false })
-                }}
-                color="primary"
-                variant="contained"
-              >
-                Confirm
-              </Button>
-            </DialogActions>
-          </Dialog>
-        </>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
       )}
+
+      <TableContainer component={Paper} variant="outlined">
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Title</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Sequence</TableCell>
+              <TableCell>Active</TableCell>
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography color="text.secondary">No interests yet.</Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell>{row.title}</TableCell>
+                  <TableCell>{row.name ?? '—'}</TableCell>
+                  <TableCell>{row.sequence}</TableCell>
+                  <TableCell>{row.is_active ? 'yes' : 'no'}</TableCell>
+                  <TableCell align="right">
+                    <IconButton size="small" onClick={() => openEdit(row)} aria-label="edit">
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => handleDelete(row.id)}
+                      aria-label="delete"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{editingId ? 'Edit interest' : 'New interest'}</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <TextField
+            label="Title"
+            value={form.title}
+            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+            fullWidth
+            required
+          />
+          <TextField
+            label="Name (slug)"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            fullWidth
+            helperText="Used when tagging posts (optional)"
+          />
+          <TextField
+            label="Description"
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            fullWidth
+            multiline
+            minRows={2}
+          />
+          <TextField
+            label="Route path"
+            value={form.route_path}
+            onChange={(e) => setForm((f) => ({ ...f, route_path: e.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Sequence"
+            type="number"
+            value={form.sequence}
+            onChange={(e) => setForm((f) => ({ ...f, sequence: e.target.value }))}
+            fullWidth
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={form.is_active}
+                onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+              />
+            }
+            label="Active"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   )
 }
-
-export default ManageInterests

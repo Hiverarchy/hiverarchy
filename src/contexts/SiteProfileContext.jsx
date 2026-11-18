@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { useParams } from 'react-router-dom'
+import { api } from '../lib/api'
 import { useAuth } from './AuthContext'
 
 const SiteProfileContext = createContext({})
@@ -9,36 +9,31 @@ export function SiteProfileProvider({ children }) {
   const [siteProfile, setSiteProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const { username } = useParams()
-  const navigate = useNavigate()
   const { user } = useAuth()
   const defaultUsername = import.meta.env.VITE_DEFAULT_USERNAME
-  const [retryCount, setRetryCount] = useState(0)
 
-  const fetchProfile = async (username) => {
+  const fetchProfile = async (profileUsername) => {
+    setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('username', username)
-        .single()
-
-      if (error) throw error
+      const data = await api.getProfileByUsername(String(profileUsername).toLowerCase())
       setSiteProfile(data)
-    } catch (error) {
+    } catch {
       setSiteProfile(null)
+    } finally {
+      setLoading(false)
     }
   }
 
   useEffect(() => {
     const profileUsername = username || defaultUsername
     if (profileUsername) {
-      fetchProfile(profileUsername)
+      void fetchProfile(profileUsername)
     }
   }, [username, defaultUsername])
 
   const isOwner = () => {
     if (!user || !siteProfile) return false
-    return user.id === siteProfile.id
+    return user.id === siteProfile.user_id
   }
 
   const value = {

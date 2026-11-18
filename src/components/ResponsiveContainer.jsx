@@ -52,14 +52,12 @@ export default function ResponsiveContainer({
  * @param {React.ReactNode} props.children - Child components
  * @param {Object} props.sx - Additional MUI sx props
  * @param {number} props.spacing - Grid spacing (1-5)
- * @param {number} props.columns - Number of columns (1-12)
  * @param {string} props.direction - Flex direction ('row', 'column', 'row-reverse', 'column-reverse')
  * @returns {JSX.Element}
  */
 export function ResponsiveGrid({
   children,
   spacing = 2,
-  columns = 12,
   direction = 'row',
   wrap = 'wrap',
   sx = {},

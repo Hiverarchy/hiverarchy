@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useParams, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { InterestProvider } from './contexts/InterestContext'
 import { ProfileProvider, useProfile } from './contexts/ProfileContext'
@@ -10,8 +10,8 @@ import Welcome from './components/Welcome'
 import DocumentHead from './components/DocumentHead'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import './styles/global.css'
-import { shouldShowWelcomePage, getRedirectPath, isValidPath, getEffectiveUsername, getDomain, getPort } from './utils/urlUtils'
-import { supabase } from './lib/supabase'
+import { shouldShowWelcomePage, getRedirectPath, getEffectiveUsername } from './utils/urlUtils'
+import { api } from './lib/api'
 import { Box, CircularProgress } from '@mui/material'
 
 // Ensure DOM is ready before accessing document.body
@@ -88,16 +88,17 @@ const RouteGuard = ({ children }) => {
           console.log('Setting up blog profile for username:', username)
           
           if (username) {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('username', username)
-              .single()
-
-            if (profile) {
-              console.log('Found profile:', profile)
-              setBlogProfile(profile)
-            } else {
+            try {
+              const profile = await api.getProfileByUsername(
+                String(username).toLowerCase(),
+              )
+              if (profile) {
+                console.log('Found profile:', profile)
+                setBlogProfile(profile)
+              } else {
+                console.log('No profile found for username:', username)
+              }
+            } catch {
               console.log('No profile found for username:', username)
             }
           }
@@ -210,7 +211,7 @@ const RouteGuard = ({ children }) => {
         state: { from: location.pathname.split(/[?#]/)[0] } // Use clean path
       })
     }
-  }, [redirectTo, isAuthRoute, location.pathname, user, navigate, location])
+  }, [redirectTo, isAuthRoute, location.pathname, user, navigate, location, domReady])
 // Show loading state while processing or waiting for profile or DOM
 if ((isProcessing || profileLoading || !domReady) && !isAuthRoute) {
   console.log('RouteGuard loading:', { isProcessing, profileLoading, domReady })

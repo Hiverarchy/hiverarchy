@@ -9,6 +9,7 @@ import {
   Typography,
   Chip,
   IconButton,
+  Button,
   List,
   ListItem,
   ListItemText,
@@ -165,6 +166,10 @@ export default function SectionEditForm({ section, ideas, onSave }) {
           ))}
         </Box>
       </Box>
+
+      <Button variant="contained" onClick={handleSave}>
+        Save section
+      </Button>
     </Box>
   )
 } 

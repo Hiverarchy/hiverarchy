@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
-export default defineConfig(({ mode, command }) => {
+export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const shouldGenerateSourcemap = env.VITE_DISABLE_SOURCEMAPS !== 'true'
   
@@ -11,15 +11,30 @@ export default defineConfig(({ mode, command }) => {
   
   return {
     plugins: [react()],
+    test: {
+      globals: true,
+      environment: 'node',
+      include: ['src/**/*.{test,spec}.{js,ts,jsx,tsx}'],
+    },
     base: '/',
     assetsInclude: ['**/*.md'],
     server: {
-      port: isHierarchyLocal ? 4021 : 3000, // Use port 4021 for hierarchy mode, 3000 as default
-      strictPort: true, // Don't fallback to another port
+      host: true,
+      port: isHierarchyLocal ? 4021 : 5173,
+      strictPort: true,
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:3000',
+          changeOrigin: true,
+        },
+        '/media': {
+          target: 'http://127.0.0.1:3000',
+          changeOrigin: true,
+        },
+      },
       fs: {
-        // Allow serving files from the project root
-        allow: ['..']
-      }
+        allow: ['..'],
+      },
     },
     build: {
       outDir: 'dist',
@@ -37,7 +52,6 @@ export default defineConfig(({ mode, command }) => {
               '@emotion/styled'
             ],
             'editor': ['@uiw/react-md-editor'],
-            'supabase': ['@supabase/supabase-js']
           }
         }
       },

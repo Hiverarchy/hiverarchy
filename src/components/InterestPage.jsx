@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { useProfile } from '../contexts/ProfileContext'
 import PostCard from './PostCard'
@@ -10,16 +10,13 @@ import {
   Typography,
   Box,
   Button,
-  Stack,
   TextField,
   InputAdornment,
   CircularProgress,
   Paper,
-  Alert
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import { useInterests } from '../contexts/InterestContext'
-import ReactMarkdown from 'react-markdown'
 
 function InterestPage() {
   const navigate = useNavigate()
@@ -31,7 +28,6 @@ function InterestPage() {
   const [posts, setPosts] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
   const isOwner = user?.id === interestData?.user_id
   const { interests, loading: interestsLoading } = useInterests()
   
@@ -52,64 +48,25 @@ function InterestPage() {
     })
   }, [params, interestName, interestParam, routeUsername, currentUsername, blogProfile])
 
-  useEffect(() => {
-    let isMounted = true
-    
-    const fetchData = async () => {
-      if (!interestName) {
-        setLoading(false)
-        setError('No interest specified')
-        return
-      }
-
-      console.log('Fetching interest data for:', interestName)
-      setLoading(true)
-      try {
-        // Fetch both interest and posts in parallel
-        const [interestResult, postsResult] = await Promise.all([
-          supabase
-            .from('interests')
-            .select('*')
-            .eq('name', interestName)
-            .single(),
-          supabase
-            .from('posts')
-            .select('*')
-            .contains('interest_names', [interestName])
-        ])
-
-        if (interestResult.error) {
-          console.error('Error fetching interest:', interestResult.error)
-          throw interestResult.error
-        }
-        if (postsResult.error) {
-          console.error('Error fetching posts:', postsResult.error)
-          throw postsResult.error
-        }
-
-        if (isMounted) {
-          console.log('Interest data fetched:', interestResult.data, 'Posts:', postsResult.data?.length || 0)
-          setInterestData(interestResult.data)
-          setPosts(postsResult.data || [])
-          setError(null)
-        }
-      } catch (error) {
-        if (isMounted) {
-          setError('Failed to fetch interest data')
-          console.error('Error fetching interest data:', error)
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false)
-        }
-      }
+  const loadPosts = useCallback(async () => {
+    if (!interestName) {
+      setLoading(false)
+      return
     }
-
-    fetchData()
-    return () => {
-      isMounted = false
+    setLoading(true)
+    try {
+      const postsData = await api.getPostsByInterest(interestName)
+      setPosts(postsData || [])
+    } catch (err) {
+      console.error('Error fetching interest data:', err)
+    } finally {
+      setLoading(false)
     }
   }, [interestName])
+
+  useEffect(() => {
+    void loadPosts()
+  }, [loadPosts])
 
   useEffect(() => {
     if (!interestsLoading) {
@@ -298,7 +255,7 @@ function InterestPage() {
             post={post}
             showInterest={false}
             onEdit={isOwner ? () => navigate(`/edit/${post.id}`) : undefined}
-            onDelete={() => fetchPosts()}
+            onDelete={() => void loadPosts()}
             level={0}
           />
         ))}

@@ -1,24 +1,21 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import ConfirmModal from './ConfirmModal'
 import { Paper, Typography, Button, Box, Chip, Stack, Alert } from '@mui/material'
 import { useProfile } from '../contexts/ProfileContext'
-import { shouldShowUsernameInUrl } from '../utils/urlUtils'
 import { useIsMobile } from '../utils/responsive'
 
 export default function PostCard({ post, onDelete, showInterest = true }) {
   const { user } = useAuth()
   const { currentUsername } = useProfile()
-  const navigate = useNavigate()
-  const defaultUserId = import.meta.env.VITE_DEFAULT_USER
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [firstImage, setFirstImage] = useState(null)
   const [error, setError] = useState(null)
   const [imageUrl, setImageUrl] = useState(null)
-  const isAuthor = user?.id === defaultUserId
+  const isAuthor = user?.id === post.user_id
   const isMobile = useIsMobile()
 
   const extractFirstImageFromContent = (content) => {
@@ -50,7 +47,7 @@ export default function PostCard({ post, onDelete, showInterest = true }) {
           } else {
             setImageUrl(null);
           }
-        } catch (e) {
+        } catch {
           // If parsing fails, check for firstImage from content
           if (firstImage) {
             setImageUrl(firstImage);
@@ -72,22 +69,8 @@ export default function PostCard({ post, onDelete, showInterest = true }) {
   async function handleDelete() {
     try {
       setError(null)
-      const { error: imageError } = await supabase
-        .from('images')
-        .delete()
-        .eq('post_id', post.id)
+      await api.deletePost(post.id)
 
-      if (imageError) {
-        console.error('Error deleting images:', imageError)
-      }
-
-      const { error: postError } = await supabase
-        .from('posts')
-        .delete()
-        .eq('id', post.id)
-
-      if (postError) throw postError
-      
       if (onDelete) {
         onDelete(post.id)
       }

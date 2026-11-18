@@ -1,345 +1,99 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import {
-  Box,
-  Button,
-  CircularProgress,
-  ImageList,
-  ImageListItem,
-  IconButton,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import { useState } from 'react'
+import { Box, Button, Typography, IconButton, Tooltip, Snackbar, Alert } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
+import { api, mediaUrl } from '../lib/api'
 
-const BUCKET_CONFIGS = {
-  'post-images': {
-    maxSize: 5242880, // 5MB
-    allowedTypes: ['image/*'],
-    maxDimensions: { width: 2000, height: 2000 }
-  },
-  'interest-images': {
-    maxSize: 5242880, // 5MB
-    allowedTypes: ['image/*'],
-    maxDimensions: { width: 2000, height: 2000 }
-  },
-  'profile_logos': {
-    maxSize: 1048576, // 1MB
-    allowedTypes: ['image/jpeg', 'image/png', 'image/gif'],
-    maxDimensions: { width: 500, height: 500 }
-  }
-}
+export default function ImageUpload({
+  onUpload,
+  onRemove,
+  existingImages = [],
+  showCopyOption = false,
+}) {
+  const [snackbar, setSnackbar] = useState({ open: false, message: '' })
+  const [uploading, setUploading] = useState(false)
 
-// Helper function to resize image
-const resizeImage = (file, maxWidth, maxHeight) => {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.src = URL.createObjectURL(file)
-    
-    img.onload = () => {
-      URL.revokeObjectURL(img.src)
-      
-      let width = img.width
-      let height = img.height
-      
-      // Calculate new dimensions while maintaining aspect ratio
-      if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height)
-        width = Math.floor(width * ratio)
-        height = Math.floor(height * ratio)
-      } else {
-        // If image is smaller than max dimensions, return original file
-        resolve(file)
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const data = await api.uploadMedia(file)
+      const path = data?.url
+      if (!path) {
+        setSnackbar({ open: true, message: 'Upload failed' })
+        e.target.value = ''
         return
       }
-      
-      // Create canvas and resize image
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(img, 0, 0, width, height)
-      
-      // Convert canvas to blob
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          reject(new Error('Failed to resize image'))
-          return
-        }
-        // Create new file from blob
-        const resizedFile = new File([blob], file.name, {
-          type: file.type,
-          lastModified: Date.now()
-        })
-        resolve(resizedFile)
-      }, file.type)
-    }
-    
-    img.onerror = () => {
-      URL.revokeObjectURL(img.src)
-      reject(new Error('Failed to load image'))
-    }
-  })
-}
-
-function ImageUpload({ 
-  onUpload, 
-  onRemove, 
-  existingImages = [], 
-  bucket = 'post-images',
-  folder = null,
-  showCopyOption = true
-}) {
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState(null)
-  const bucketConfig = BUCKET_CONFIGS[bucket]
-  const [bucketReady, setBucketReady] = useState(false)
-
-  // Create bucket if it doesn't exist
-  const createBucketIfNeeded = async () => {
-    try {
-      const { data: buckets } = await supabase.storage.listBuckets()
-      const bucketExists = buckets.some(b => b.name === bucket)
-      
-      if (!bucketExists) {
-        try {
-          const { error } = await supabase.storage.createBucket(bucket, {
-            public: true,
-            allowedMimeTypes: bucketConfig.allowedTypes,
-            fileSizeLimit: bucketConfig.maxSize
-          })
-          
-          if (error) {
-            console.error('Error creating bucket:', error)
-            const { data: checkBuckets } = await supabase.storage.listBuckets()
-            return checkBuckets.some(b => b.name === bucket)
-          }
-        } catch (error) {
-          console.error('Error creating bucket:', error)
-          const { data: checkBuckets } = await supabase.storage.listBuckets()
-          return checkBuckets.some(b => b.name === bucket)
-        }
+      const url = mediaUrl(path)
+      if (onUpload) {
+        onUpload([url])
       }
-      return true
-    } catch (error) {
-      console.error('Error checking/creating bucket:', error)
-      return false
-    }
-  }
-
-  useEffect(() => {
-    const initBucket = async () => {
-      const ready = await createBucketIfNeeded()
-      setBucketReady(ready)
-    }
-    initBucket()
-  }, [bucket])
-
-  const validateImage = async (file) => {
-    if (!bucketConfig) {
-      throw new Error('Invalid bucket configuration')
-    }
-
-    // Check file type
-    if (!bucketConfig.allowedTypes.some(type => {
-      if (type === 'image/*') return file.type.startsWith('image/')
-      return type === file.type
-    })) {
-      throw new Error('Invalid file type')
-    }
-
-    // Check file size
-    if (file.size > bucketConfig.maxSize) {
-      throw new Error(`File size must be less than ${bucketConfig.maxSize / 1048576}MB`)
-    }
-
-    return true
-  }
-
-  async function handleUpload(event) {
-    try {
-      if (!bucketReady) {
-        const ready = await createBucketIfNeeded()
-        if (!ready) {
-          throw new Error('Unable to initialize storage bucket')
-        }
-      }
-
-      setError(null)
-      setUploading(true)
-
-      const file = event.target.files[0]
-      if (!file) return
-
-      // Validate file type and size
-      await validateImage(file)
-
-      // Resize image if needed
-      const resizedFile = await resizeImage(
-        file,
-        bucketConfig.maxDimensions.width,
-        bucketConfig.maxDimensions.height
-      )
-
-      const fileExt = resizedFile.name.split('.').pop()
-      const fileName = `${Math.random()}.${fileExt}`
-      const filePath = folder ? `${folder}/${fileName}` : fileName
-
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(filePath, resizedFile)
-
-      if (uploadError) throw uploadError
-
-      const { data } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(filePath)
-
-      if (data?.publicUrl) {
-        onUpload([data.publicUrl])
-      }
-    } catch (error) {
-      setError(error.message)
-      console.error('Error uploading image:', error)
+    } catch (err) {
+      setSnackbar({ open: true, message: err.message || 'Upload failed' })
     } finally {
       setUploading(false)
+      e.target.value = ''
     }
   }
 
-  const handleCopyMarkdown = (imageUrl) => {
-    const markdownSyntax = `![image](${imageUrl})`
-    navigator.clipboard.writeText(markdownSyntax)
-  }
-
-  if (!bucketConfig) {
-    return <Typography color="error">Invalid bucket configuration</Typography>
+  const copyMarkdown = (url) => {
+    const md = `![image](${url})`
+    navigator.clipboard.writeText(md).then(() => {
+      setSnackbar({ open: true, message: 'Markdown copied' })
+    })
   }
 
   return (
     <Box>
-      <Box sx={{ mb: 2 }}>
-        <Button
-          variant="contained"
-          component="label"
-          disabled={uploading || !bucketReady}
-        >
-          {uploading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CircularProgress size={20} color="inherit" />
-              <span>Uploading...</span>
-            </Box>
-          ) : !bucketReady ? (
-            'Initializing...'
-          ) : (
-            'Upload Image'
-          )}
-          <input
-            type="file"
-            accept={bucketConfig.allowedTypes.join(',')}
-            onChange={handleUpload}
-            hidden
-          />
-        </Button>
-        <Typography variant="caption" display="block" sx={{ mt: 1, color: 'text.secondary' }}>
-          Max dimensions: {bucketConfig.maxDimensions.width}x{bucketConfig.maxDimensions.height}px
-          {' | '}Max size: {bucketConfig.maxSize / 1048576}MB
-        </Typography>
+      <Button variant="outlined" component="label" sx={{ mb: 2 }} disabled={uploading}>
+        {uploading ? 'Uploading…' : 'Choose image'}
+        <input type="file" hidden accept="image/*" onChange={handleFileChange} disabled={uploading} />
+      </Button>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+        Images are stored on the API and served at <code>/media/…</code> (sign in required).
+      </Typography>
+
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+        {existingImages.map((url, i) => (
+          <Box key={i} sx={{ position: 'relative', width: 120, height: 120 }}>
+            <Box
+              component="img"
+              src={url}
+              alt=""
+              sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 1 }}
+            />
+            {showCopyOption && (
+              <Tooltip title="Copy markdown">
+                <IconButton
+                  size="small"
+                  sx={{ position: 'absolute', top: 0, right: 24 }}
+                  onClick={() => copyMarkdown(url)}
+                >
+                  <ContentCopyIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {onRemove && (
+              <IconButton
+                size="small"
+                sx={{ position: 'absolute', top: 0, right: 0 }}
+                onClick={() => onRemove(url)}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Box>
+        ))}
       </Box>
 
-      {error && (
-        <Typography color="error" sx={{ mb: 2 }}>
-          {error}
-        </Typography>
-      )}
-
-      {existingImages?.length > 0 && (
-        <ImageList sx={{ width: '100%', maxHeight: 300 }} cols={4} rowHeight={120}>
-          {existingImages.map((image, index) => {
-            // Handle both string URLs and object URLs
-            const imageUrl = typeof image === 'string' ? image : image.url;
-            // Parse JSON string if needed
-            const finalUrl = (() => {
-              try {
-                const parsed = JSON.parse(imageUrl);
-                return Array.isArray(parsed) ? parsed[0] : imageUrl;
-              } catch (e) {
-                return imageUrl;
-              }
-            })();
-            
-            return (
-              <ImageListItem key={finalUrl} sx={{ position: 'relative' }}>
-                <Box
-                  sx={{
-                    position: 'relative',
-                    height: '100%',
-                    '&:hover .image-actions': {
-                      opacity: 1,
-                    },
-                  }}
-                >
-                  <img
-                    src={finalUrl}
-                    alt={`Image ${index + 1}`}
-                    loading="lazy"
-                    style={{ height: '120px', width: '120px', objectFit: 'cover' }}
-                  />
-                  <Box
-                    className="image-actions"
-                    sx={{
-                      position: 'absolute',
-                      top: 0,
-                      right: 0,
-                      padding: 0.5,
-                      display: 'flex',
-                      gap: 0.5,
-                      opacity: 0,
-                      transition: 'opacity 0.2s',
-                      bgcolor: 'rgba(0, 0, 0, 0.5)',
-                      borderRadius: '0 0 0 8px',
-                    }}
-                  >
-                    {showCopyOption && (
-                      <Tooltip title="Copy Markdown">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleCopyMarkdown(finalUrl)}
-                          sx={{
-                            color: 'white',
-                            '&:hover': {
-                              bgcolor: 'rgba(255, 255, 255, 0.2)',
-                            },
-                          }}
-                        >
-                          <ContentCopyIcon />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    <Tooltip title="Delete">
-                      <IconButton
-                        size="small"
-                        onClick={() => onRemove(image.id || image)}
-                        sx={{
-                          color: 'white',
-                          '&:hover': {
-                            bgcolor: 'rgba(255, 255, 255, 0.2)',
-                          },
-                        }}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-              </ImageListItem>
-            );
-          })}
-        </ImageList>
-      )}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={2000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+      >
+        <Alert severity="success">{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   )
 }
-
-export default ImageUpload

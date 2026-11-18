@@ -1,13 +1,10 @@
 import { Link } from 'react-router-dom'
-import { Box, Container, Typography, Button, Paper, Grid, Avatar, Divider } from '@mui/material'
+import { Box, Container, Typography, Button, Paper, Grid, Avatar } from '@mui/material'
 import { useTheme } from '../contexts/ThemeContext'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { useEffect } from 'react'
 import { useProfile } from '../contexts/ProfileContext'
 
 export default function Welcome() {
-  const navigate = useNavigate()
   const { user } = useAuth()
   const { userProfile, getFullLogoUrl } = useProfile()
   const { darkMode } = useTheme()

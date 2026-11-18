@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { Box, TextField, Button, Container, Paper, Typography, Divider, Grid, Stack, Chip, List, ListItem, ListItemText } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
 import MarkdownEditor from '../components/MarkdownEditor'
 import CommentList from '../components/CommentList'
 import RefutationList from '../components/RefutationList'
 import ImageUpload from '../components/ImageUpload'
+import { useProfile } from '../contexts/ProfileContext'
 
 export default function EditPost() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { currentUsername } = useProfile()
   const [post, setPost] = useState({
     title: '',
     brief_description: '',
@@ -26,80 +28,57 @@ export default function EditPost() {
   const [tagSuggestions, setTagSuggestions] = useState([])
   const [availableInterests, setAvailableInterests] = useState([])
 
+  const getPost = useCallback(async () => {
+    try {
+      setLoading(true)
+      const data = await api.getPost(id)
+      setPost({
+        ...data,
+        images: data.images || [],
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [id])
+
+  const fetchTagSuggestions = useCallback(async () => {
+    try {
+      if (!currentUsername) {
+        setTagSuggestions([])
+        return
+      }
+      const data = await api.getTagsByUsername(currentUsername.toLowerCase())
+      const names = (data || []).map((t) => t.name).filter(Boolean)
+      setTagSuggestions(names)
+    } catch (e) {
+      console.error('Error fetching tags:', e)
+      setTagSuggestions([])
+    }
+  }, [currentUsername])
+
+  const fetchAvailableInterests = useCallback(async () => {
+    try {
+      if (!currentUsername) return
+      const data = await api.getInterestsByUsername(currentUsername.toLowerCase(), true)
+      setAvailableInterests(
+        (data || []).map((interest) => ({
+          id: interest.id,
+          value: interest.name,
+          label: interest.title,
+        })),
+      )
+    } catch (error) {
+      console.error('Error fetching interests:', error)
+    }
+  }, [currentUsername])
+
   useEffect(() => {
     getPost()
     fetchTagSuggestions()
     fetchAvailableInterests()
-  }, [id])
-
-  const getPost = async () => {
-    try {
-      setLoading(true)
-      // First get the post without images
-      const { data, error } = await supabase
-        .from('posts')
-        .select('*')
-        .eq('id', id)
-        .single()
-
-      if (error) throw error
-
-      // Then fetch images separately
-      const { data: imageData, error: imageError } = await supabase
-        .from('images')
-        .select('id, url')
-        .eq('post_id', id)
-
-      if (imageError) {
-        console.error('Error fetching images:', imageError)
-      }
-
-      setPost({
-        ...data,
-        images: imageData || []
-      })
-    } catch (error) {
-      setError(error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchTagSuggestions = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select('tag_names')
-        .not('tag_names', 'is', null)
-
-      if (error) throw error
-
-      // Flatten and deduplicate tags
-      const allTags = [...new Set(data.flatMap(post => post.tag_names || []))]
-      setTagSuggestions(allTags)
-    } catch (error) {
-      console.error('Error fetching tag suggestions:', error)
-    }
-  }
-
-  const fetchAvailableInterests = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('interests')
-        .select('id, name')
-        .order('name')
-
-      if (error) throw error
-
-      setAvailableInterests(data.map(interest => ({
-        id: interest.id,
-        value: interest.id,
-        label: interest.name
-      })))
-    } catch (error) {
-      console.error('Error fetching interests:', error)
-    }
-  }
+  }, [getPost, fetchTagSuggestions, fetchAvailableInterests])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -107,24 +86,17 @@ export default function EditPost() {
     setError(null)
 
     try {
-      const { error } = await supabase
-        .from('posts')
-        .update({
-          title: post.title,
-          brief_description: post.brief_description,
-          content: post.content,
-          tag_names: post.tag_names,
-          tag_ids: post.tag_ids,
-          interest_names: post.interest_names,
-          interest_ids: post.interest_ids,
-          completeness: post.completeness,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id)
+      await api.updatePost(id, {
+        title: post.title,
+        brief_description: post.brief_description,
+        content: post.content,
+        tag_names: post.tag_names,
+        tag_ids: post.tag_ids,
+        interest_names: post.interest_names,
+        interest_ids: post.interest_ids,
+      })
 
-      if (error) throw error
-
-      navigate(`/${post.username}/post/${id}`)
+      navigate(`/${currentUsername}/post/${id}`)
     } catch (error) {
       console.error('Error updating post:', error)
       setError('Failed to update post. Please try again.')
@@ -136,14 +108,14 @@ export default function EditPost() {
   const handleInterestChange = (interest) => {
     setPost(prev => {
       const interestId = interest.id
-      const interestLabel = interest.label
+      const interestName = interest.value
 
       // If interest is already selected, remove it
-      if (prev.interest_names.includes(interestLabel)) {
+      if (prev.interest_names.includes(interestName)) {
         return {
           ...prev,
           interest_ids: prev.interest_ids.filter(id => id !== interestId),
-          interest_names: prev.interest_names.filter(name => name !== interestLabel)
+          interest_names: prev.interest_names.filter(name => name !== interestName)
         }
       }
 
@@ -151,7 +123,7 @@ export default function EditPost() {
       return {
         ...prev,
         interest_ids: [...prev.interest_ids, interestId],
-        interest_names: [...prev.interest_names, interestLabel]
+        interest_names: [...prev.interest_names, interestName]
       }
     })
   }
@@ -168,45 +140,16 @@ export default function EditPost() {
   }
 
   const handleTagSelect = async (tag) => {
-    try {
-      // Check if tag already exists
-      let { data: existingTag, error: fetchError } = await supabase
-        .from('tags')
-        .select('id, name')
-        .eq('name', tag)
-        .single()
-
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        throw fetchError
+    setPost((prev) => {
+      if (prev.tag_names.includes(tag)) {
+        return prev
       }
-
-      // If tag doesn't exist, create it
-      if (!existingTag) {
-        const { data: newTag, error: insertError } = await supabase
-          .from('tags')
-          .insert([{ name: tag }])
-          .select()
-          .single()
-
-        if (insertError) throw insertError
-        existingTag = newTag
+      return {
+        ...prev,
+        tag_names: [...prev.tag_names, tag],
       }
-
-      // Update post state with both name and id
-      setPost(prev => {
-        if (prev.tag_names.includes(tag)) {
-          return prev
-        }
-        return {
-          ...prev,
-          tag_names: [...prev.tag_names, tag],
-          tag_ids: [...(prev.tag_ids || []), existingTag.id]
-        }
-      })
-      setTagInput('')
-    } catch (error) {
-      console.error('Error handling tag:', error)
-    }
+    })
+    setTagInput('')
   }
 
   const removeTag = (tagToRemove) => {
@@ -225,45 +168,22 @@ export default function EditPost() {
     })
   }
 
-  const handleImageUpload = async (url) => {
-    try {
-      const { data, error } = await supabase
-        .from('images')
-        .insert([
-          {
-            url: url[0],
-            post_id: id
-          }
-        ])
-        .select()
-
-      if (error) throw error
-
-      setPost(prev => ({
-        ...prev,
-        images: [...prev.images, data[0]]
-      }))
-    } catch (error) {
-      console.error('Error saving image:', error)
-    }
+  const handleImageUpload = async (urls) => {
+    const list = Array.isArray(urls) ? urls : [urls]
+    setPost((prev) => ({
+      ...prev,
+      images: [...(prev.images || []), ...list],
+    }))
   }
 
-  const handleRemoveImage = async (imageId) => {
-    try {
-      const { error } = await supabase
-        .from('images')
-        .delete()
-        .eq('id', imageId)
-
-      if (error) throw error
-
-      setPost(prev => ({
-        ...prev,
-        images: prev.images.filter(img => img.id !== imageId)
-      }))
-    } catch (error) {
-      console.error('Error removing image:', error)
-    }
+  const handleRemoveImage = async (target) => {
+    setPost((prev) => ({
+      ...prev,
+      images: (prev.images || []).filter((img) => {
+        if (typeof img === 'string') return img !== target
+        return img.id !== target && img.url !== target
+      }),
+    }))
   }
 
   const filteredSuggestions = tagSuggestions.filter(tag =>
@@ -361,8 +281,8 @@ export default function EditPost() {
                     key={interest.value}
                     label={interest.label}
                     onClick={() => handleInterestChange(interest)}
-                    color={post.interest_names.includes(interest.label) ? 'primary' : 'default'}
-                    variant={post.interest_names.includes(interest.label) ? 'filled' : 'outlined'}
+                    color={post.interest_names.includes(interest.value) ? 'primary' : 'default'}
+                    variant={post.interest_names.includes(interest.value) ? 'filled' : 'outlined'}
                   />
                 ))}
               </Stack>
@@ -444,9 +364,9 @@ export default function EditPost() {
               <ImageUpload
                 onUpload={handleImageUpload}
                 onRemove={handleRemoveImage}
-                existingImages={post.images}
-                bucket="post-images"
-                folder="post-images"
+                existingImages={(post.images || []).map((i) =>
+                  typeof i === 'string' ? i : i.url,
+                )}
                 showCopyOption={true}
               />
             </Grid>

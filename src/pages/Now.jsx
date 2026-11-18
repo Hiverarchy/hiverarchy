@@ -116,10 +116,10 @@ export default function Now() {
             <ReactMarkdown 
               remarkPlugins={[remarkGfm]}
               components={{
-                h1: ({ node, ...props }) => <Typography variant="h1" {...props} />,
-                h2: ({ node, ...props }) => <Typography variant="h2" {...props} />,
-                h3: ({ node, ...props }) => <Typography variant="h3" {...props} />,
-                p: ({ node, ...props }) => <Typography variant="body1" {...props} />,
+                h1: (props) => <Typography variant="h1" {...props} />,
+                h2: (props) => <Typography variant="h2" {...props} />,
+                h3: (props) => <Typography variant="h3" {...props} />,
+                p: (props) => <Typography variant="body1" {...props} />,
               }}
             >
               {now}

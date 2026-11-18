@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   Box,
   Paper,
   Typography,
   IconButton,
   Button,
-  TextField,
   List,
   ListItem,
   ListItemText,
@@ -16,15 +15,12 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Menu,
-  MenuItem,
   Tooltip,
   CircularProgress
 } from '@mui/material'
 import {
   DragIndicator as DragIcon,
   Add as AddIcon,
-  Delete as DeleteIcon,
   Edit as EditIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
@@ -52,8 +48,6 @@ export default function StructurePlanner({ ideas, onUpdate }) {
   const [editingSection, setEditingSection] = useState(null)
   const [sectionDialogOpen, setSectionDialogOpen] = useState(false)
   const [expandedSections, setExpandedSections] = useState({})
-  const [menuAnchor, setMenuAnchor] = useState(null)
-  const [selectedSection, setSelectedSection] = useState(null)
 
   // Initial structure generation using AI
   const generateInitialStructure = async () => {
@@ -282,9 +276,6 @@ Format the response as a JSON structure with:
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSectionDialogOpen(false)}>Cancel</Button>
-          <Button onClick={() => handleSaveSection(editingSection)} variant="contained">
-            Save
-          </Button>
         </DialogActions>
       </Dialog>
     </Paper>
